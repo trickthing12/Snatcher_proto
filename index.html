@@ -1,0 +1,395 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>3D Boss Fight Prototype - Image Applied</title>
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #222; }
+        #ui {
+            position: absolute; top: 20px; left: 20px;
+            color: white; font-family: sans-serif; font-size: 18px;
+            text-shadow: 1px 1px 2px black; pointer-events: none; z-index: 10;
+        }
+        #hpUI {
+            position: absolute; bottom: 20px; left: 20px;
+            color: white; font-family: sans-serif; font-size: 20px;
+            text-shadow: 1px 1px 2px black; pointer-events: none; z-index: 10;
+        }
+        #blocker {
+            position: absolute; width: 100%; height: 100%;
+            background-color: rgba(0,0,0,0.7); display: flex;
+            justify-content: center; align-items: center;
+            color: white; font-size: 24px; cursor: pointer; z-index: 20;
+        }
+    </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+</head>
+<body>
+    <div id="blocker">화면을 클릭하여 전투 시작<br><span style="font-size:16px;">(좌클릭: 공격 / WASD: 이동 / 마우스: 회전)</span></div>
+    
+    <div id="ui">
+        현재 패턴: <span id="patternName" style="color: #ffaa00;">대기 (IDLE)</span><br>
+        출력 이미지: <span id="imgName">idle.png</span><br>
+        근접 누적 시간: <span id="timeUI">0.0</span>초
+    </div>
+
+    <div id="hpUI">
+        몬스터 HP: <span id="monsterHP" style="color: red;">1000</span><br>
+        플레이어 HP: <span id="playerHP" style="color: #00aaff;">100</span>
+    </div>
+
+    <script>
+        // ==========================================
+        // 1. 기본 셋업 및 객체 생성
+        // ==========================================
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document.body.appendChild(renderer.domElement);
+
+        scene.add(new THREE.AmbientLight(0xffffff, 0.8));
+        scene.add(new THREE.GridHelper(100, 100, 0x555555, 0x333333));
+
+        const player = new THREE.Mesh(new THREE.BoxGeometry(1, 2, 1), new THREE.MeshBasicMaterial({color: 0x00aaff, wireframe: true}));
+        player.position.y = 1;
+        scene.add(player);
+
+        // 🌟 텍스처 로더 설정 (투명도 허용)
+        const textureLoader = new THREE.TextureLoader();
+        const monsterMat = new THREE.MeshBasicMaterial({ 
+            map: textureLoader.load('idle.png'), 
+            side: THREE.DoubleSide,
+            transparent: true // PNG 배경 투명화 처리
+        });
+        
+        // 몬스터 평면 생성 (이미지 비율에 따라 크기(5, 5)를 나중에 수정할 수 있습니다)
+        const monster = new THREE.Mesh(new THREE.PlaneGeometry(5, 5), monsterMat);
+        monster.position.set(0, 2.5, -15);
+        scene.add(monster);
+
+        let monsterHealth = 1000;
+        let playerHealth = 100;
+        let isGrabbed = false; 
+        
+        const uiMonsterHP = document.getElementById('monsterHP');
+        const uiPlayerHP = document.getElementById('playerHP');
+
+        // ==========================================
+        // 2. 입력 제어 (카메라, 이동, 플레이어 공격)
+        // ==========================================
+        let yaw = 0, pitch = 0;
+        const cameraDistance = 8;
+        const keys = {};
+
+        const blocker = document.getElementById('blocker');
+        blocker.addEventListener('click', () => document.body.requestPointerLock());
+        document.addEventListener('pointerlockchange', () => { 
+            blocker.style.display = document.pointerLockElement ? 'none' : 'flex'; 
+        });
+        
+        document.addEventListener('mousemove', (e) => {
+            if (document.pointerLockElement) {
+                yaw -= e.movementX * 0.002;
+                pitch = Math.max(-Math.PI/2+0.1, Math.min(Math.PI/2-0.1, pitch - e.movementY * 0.002));
+            }
+        });
+        
+        window.addEventListener('keydown', e => keys[e.code] = true);
+        window.addEventListener('keyup', e => keys[e.code] = false);
+
+        window.addEventListener('mousedown', (e) => {
+            if (document.pointerLockElement && e.button === 0 && !isGrabbed) {
+                if (player.position.distanceTo(monster.position) <= 6.0) { 
+                    monsterHealth -= 50;
+                    uiMonsterHP.innerText = monsterHealth;
+                    monster.material.color.setHex(0xffaaaa); // 피격 시 빨갛게
+                    setTimeout(() => monster.material.color.setHex(0xffffff), 100); 
+                }
+            }
+        });
+
+        function movePlayer(dt) {
+            if (isGrabbed) return; 
+            const move = new THREE.Vector3();
+            if (keys['KeyW']) move.z -= 1; 
+            if (keys['KeyS']) move.z += 1; 
+            if (keys['KeyA']) move.x -= 1; 
+            if (keys['KeyD']) move.x += 1; 
+            
+            if (move.lengthSq() > 0) {
+                move.normalize().applyAxisAngle(new THREE.Vector3(0,1,0), yaw);
+                player.position.addScaledVector(move, 12 * dt); 
+                player.rotation.y = Math.atan2(move.x, move.z); 
+            }
+        }
+
+        // ==========================================
+        // 3. 투사체 시스템
+        // ==========================================
+        const projectiles = [];
+        const puddles = [];
+
+        function spawnProjectile(type) {
+            const startPos = monster.position.clone();
+            const targetPos = player.position.clone(); 
+            const geo = type === 'coin' ? new THREE.CylinderGeometry(0.5, 0.5, 0.1, 16) : new THREE.SphereGeometry(0.5);
+            const mat = new THREE.MeshBasicMaterial({ color: type === 'coin' ? 0xffd700 : 0x00ff00 });
+            const mesh = new THREE.Mesh(geo, mat);
+            if (type === 'coin') mesh.rotation.x = Math.PI / 2;
+            mesh.position.copy(startPos);
+            scene.add(mesh);
+            projectiles.push({ mesh, targetPos, type, speed: 20 });
+        }
+
+        function createPoisonPuddle(pos) {
+            const geo = new THREE.CircleGeometry(3, 32);
+            const mat = new THREE.MeshBasicMaterial({ color: 0x00ff00, side: THREE.DoubleSide, transparent: true, opacity: 0.5 });
+            const mesh = new THREE.Mesh(geo, mat);
+            mesh.rotation.x = -Math.PI / 2;
+            mesh.position.set(pos.x, 0.1, pos.z); 
+            scene.add(mesh);
+            puddles.push({ mesh, timer: 5.0 }); 
+        }
+
+        function updateProjectiles(dt) {
+            for (let i = projectiles.length - 1; i >= 0; i--) {
+                const p = projectiles[i];
+                const dir = new THREE.Vector3().subVectors(p.targetPos, p.mesh.position);
+                if (dir.length() < 1.0) { 
+                    scene.remove(p.mesh);
+                    if (p.type === 'poison') createPoisonPuddle(p.targetPos);
+                    projectiles.splice(i, 1);
+                } else {
+                    dir.normalize();
+                    p.mesh.position.addScaledVector(dir, p.speed * dt);
+                }
+            }
+            for (let i = puddles.length - 1; i >= 0; i--) {
+                const puddle = puddles[i];
+                puddle.timer -= dt;
+                if (player.position.distanceTo(puddle.mesh.position) < 3.0) {
+                    playerHealth -= 10 * dt; 
+                    uiPlayerHP.innerText = Math.floor(playerHealth);
+                }
+                if (puddle.timer <= 0) { 
+                    scene.remove(puddle.mesh);
+                    puddles.splice(i, 1);
+                }
+            }
+        }
+
+        // ==========================================
+        // 4. 몬스터 패턴 구조 및 AI 변수 (영문 파일명 적용)
+        // ==========================================
+        let dashDirection = new THREE.Vector3();
+        let currentDashSpeed = 0;
+        let dashDamage = 0;
+        let hasHitDuringDash = false;
+
+        // 🌟 한글 파일명을 모두 영문으로 매핑 완료
+        const PATTERNS = {
+            IDLE: [ ['idle.png', 1000] ],
+            SLASH: [
+                ['slash_windup.png', 0.6], 
+                ['slash_attack.png', 0.3, () => takeDamage(10)], 
+                ['idle.png', 0.8]
+            ],
+            DOUBLE_SLAM: [
+                ['double_windup.png', 0.8], 
+                ['double_attack.png', 0.4, () => takeDamage(20)], 
+                ['idle.png', 1.0]
+            ],
+            CHARGE: [
+                ['charge_ready.png', 0.5], 
+                ['charge_attack.png', 0.6, () => startDash(25, 15)], 
+                ['idle.png', 0.8]
+            ],
+            GRAB: [
+                ['grab_try.png', 0.7, () => checkGrab()]
+            ],
+            PIERCE: [
+                ['pierce_ready.png', 0.5], 
+                ['pierce_jump.png', 0.2], 
+                ['pierce_dash.png', 0.5, () => startDash(35, 25)], 
+                ['idle.png', 1.0]
+            ],
+            COIN: [
+                ['coin_ready.png', 0.5], 
+                ['coin_hold.png', 0.3], 
+                ['coin_throw.png', 0.4, () => spawnProjectile('coin')], 
+                ['idle.png', 0.8]
+            ],
+            POISON: [
+                ['poison_ready.png', 0.6], 
+                ['poison_throw.png', 0.4, () => spawnProjectile('poison')], 
+                ['idle.png', 1.0]
+            ]
+        };
+
+        let currentSequence = PATTERNS.IDLE;
+        let sequenceIndex = 0;
+        let frameTimer = 0;
+        let isAttacking = false;
+        let timeNearPlayer = 0;       
+        let attackCooldown = 0;       
+        
+        const MIN_DISTANCE = 3.5;  
+        const MELEE_RANGE = 6.0;   
+        const RANGED_RANGE = 12.0; 
+        const MONSTER_SPEED = 4.0; 
+
+        const uiPattern = document.getElementById('patternName');
+        const uiImg = document.getElementById('imgName');
+        const uiTime = document.getElementById('timeUI');
+
+        function startPattern(patternName) {
+            currentSequence = PATTERNS[patternName];
+            sequenceIndex = 0;
+            frameTimer = currentSequence[0][1];
+            isAttacking = true;
+            currentDashSpeed = 0; 
+            uiPattern.innerText = patternName;
+            updateMonsterImage(currentSequence[0][0]);
+        }
+
+        // 🌟 텍스처 로더를 사용하여 실제 이미지를 덮어씌움
+        function updateMonsterImage(imgName) {
+            uiImg.innerText = imgName;
+            monster.material.map = textureLoader.load(imgName);
+            monster.material.needsUpdate = true;
+        }
+
+        function takeDamage(amount) {
+            if (player.position.distanceTo(monster.position) <= MELEE_RANGE) { 
+                playerHealth -= amount;
+                uiPlayerHP.innerText = Math.floor(playerHealth);
+                flashPlayerRed();
+            }
+        }
+
+        function startDash(speed, damage) {
+            dashDirection.subVectors(player.position, monster.position).normalize();
+            dashDirection.y = 0; 
+            currentDashSpeed = speed;
+            dashDamage = damage;
+            hasHitDuringDash = false; 
+        }
+
+        function flashPlayerRed() {
+            player.material.color.setHex(0xff0000);
+            setTimeout(() => player.material.color.setHex(0x00aaff), 200);
+        }
+
+        function checkGrab() {
+            if (player.position.distanceTo(monster.position) <= MELEE_RANGE) {
+                isGrabbed = true; 
+                const successSequence = [
+                    ['grab_success.png', 0.8],
+                    ['grab_bite.png', 0.6, () => {
+                        playerHealth -= 40;
+                        uiPlayerHP.innerText = Math.floor(playerHealth);
+                        flashPlayerRed();
+                    }],
+                    ['idle.png', 1.0, () => { isGrabbed = false; }] 
+                ];
+                currentSequence = currentSequence.concat(successSequence);
+            } else {
+                currentSequence.push(['idle.png', 0.8]);
+            }
+        }
+
+        function updateMonsterAI(dt) {
+            monster.quaternion.copy(camera.quaternion); 
+            const dist = player.position.distanceTo(monster.position);
+
+            if (!isAttacking) {
+                if (dist > MIN_DISTANCE) {
+                    const dir = new THREE.Vector3().subVectors(player.position, monster.position).normalize();
+                    dir.y = 0; 
+                    monster.position.addScaledVector(dir, MONSTER_SPEED * dt);
+                }
+
+                if (dist <= MELEE_RANGE) timeNearPlayer += dt;
+                else timeNearPlayer = 0;
+                uiTime.innerText = timeNearPlayer.toFixed(1);
+
+                if (attackCooldown > 0) {
+                    attackCooldown -= dt;
+                    return; 
+                }
+
+                if (timeNearPlayer >= 5.0) {
+                    startPattern('GRAB');
+                    timeNearPlayer = 0;
+                } else if (dist >= RANGED_RANGE) {
+                    const rangedPatterns = ['PIERCE', 'COIN', 'POISON'];
+                    startPattern(rangedPatterns[Math.floor(Math.random() * rangedPatterns.length)]);
+                } else if (dist <= MELEE_RANGE && dist > MIN_DISTANCE - 1) {
+                    const meleePatterns = ['SLASH', 'DOUBLE_SLAM', 'CHARGE'];
+                    startPattern(meleePatterns[Math.floor(Math.random() * meleePatterns.length)]);
+                }
+            } else {
+                frameTimer -= dt;
+
+                if (currentDashSpeed > 0) {
+                    monster.position.addScaledVector(dashDirection, currentDashSpeed * dt);
+                    
+                    if (!hasHitDuringDash && player.position.distanceTo(monster.position) <= MELEE_RANGE - 2.0) {
+                        playerHealth -= dashDamage;
+                        uiPlayerHP.innerText = Math.floor(playerHealth);
+                        flashPlayerRed();
+                        hasHitDuringDash = true; 
+                    }
+                }
+
+                if (frameTimer <= 0) {
+                    currentDashSpeed = 0; 
+                    sequenceIndex++;
+                    
+                    if (sequenceIndex >= currentSequence.length) {
+                        isAttacking = false;
+                        currentSequence = PATTERNS.IDLE;
+                        uiPattern.innerText = '대기 (IDLE)';
+                        updateMonsterImage('idle.png');
+                        attackCooldown = 1.5; 
+                    } else {
+                        const currentFrame = currentSequence[sequenceIndex];
+                        updateMonsterImage(currentFrame[0]);
+                        frameTimer = currentFrame[1];
+                        if (currentFrame[2]) currentFrame[2](); 
+                    }
+                }
+            }
+        }
+
+        // ==========================================
+        // 5. 메인 렌더 루프
+        // ==========================================
+        const clock = new THREE.Clock();
+        function animate() {
+            requestAnimationFrame(animate);
+            const dt = clock.getDelta();
+
+            movePlayer(dt);
+            updateProjectiles(dt); 
+
+            const cx = player.position.x + cameraDistance * Math.sin(yaw) * Math.cos(pitch);
+            const cy = player.position.y + 2 - cameraDistance * Math.sin(pitch);
+            const cz = player.position.z + cameraDistance * Math.cos(yaw) * Math.cos(pitch);
+            camera.position.set(cx, cy, cz);
+            camera.lookAt(player.position.x, player.position.y+1, player.position.z);
+
+            updateMonsterAI(dt);
+            renderer.render(scene, camera);
+        }
+        animate();
+
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth/window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+    </script>
+</body>
+</html>
