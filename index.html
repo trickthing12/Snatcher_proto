@@ -2,7 +2,7 @@
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
-    <title>3D Boss Fight Prototype - Image Applied</title>
+    <title>3D Boss Fight Prototype - Image Folder Applied</title>
     <style>
         body { margin: 0; overflow: hidden; background-color: #222; }
         #ui {
@@ -55,15 +55,14 @@
         player.position.y = 1;
         scene.add(player);
 
-        // 🌟 텍스처 로더 설정 (투명도 허용)
+        // 🌟 텍스처 로더 설정 및 초기 이미지 경로 (image/ 폴더 지정)
         const textureLoader = new THREE.TextureLoader();
         const monsterMat = new THREE.MeshBasicMaterial({ 
-            map: textureLoader.load('idle.png'), 
+            map: textureLoader.load('image/idle.png'), 
             side: THREE.DoubleSide,
-            transparent: true // PNG 배경 투명화 처리
+            transparent: true 
         });
         
-        // 몬스터 평면 생성 (이미지 비율에 따라 크기(5, 5)를 나중에 수정할 수 있습니다)
         const monster = new THREE.Mesh(new THREE.PlaneGeometry(5, 5), monsterMat);
         monster.position.set(0, 2.5, -15);
         scene.add(monster);
@@ -103,7 +102,7 @@
                 if (player.position.distanceTo(monster.position) <= 6.0) { 
                     monsterHealth -= 50;
                     uiMonsterHP.innerText = monsterHealth;
-                    monster.material.color.setHex(0xffaaaa); // 피격 시 빨갛게
+                    monster.material.color.setHex(0xffaaaa); 
                     setTimeout(() => monster.material.color.setHex(0xffffff), 100); 
                 }
             }
@@ -180,14 +179,13 @@
         }
 
         // ==========================================
-        // 4. 몬스터 패턴 구조 및 AI 변수 (영문 파일명 적용)
+        // 4. 몬스터 패턴 구조 및 AI 변수
         // ==========================================
         let dashDirection = new THREE.Vector3();
         let currentDashSpeed = 0;
         let dashDamage = 0;
         let hasHitDuringDash = false;
 
-        // 🌟 한글 파일명을 모두 영문으로 매핑 완료
         const PATTERNS = {
             IDLE: [ ['idle.png', 1000] ],
             SLASH: [
@@ -253,10 +251,10 @@
             updateMonsterImage(currentSequence[0][0]);
         }
 
-        // 🌟 텍스처 로더를 사용하여 실제 이미지를 덮어씌움
+        // 🌟 모든 패턴 이미지를 로드할 때 앞에 'image/' 경로를 자동으로 붙여줍니다.
         function updateMonsterImage(imgName) {
             uiImg.innerText = imgName;
-            monster.material.map = textureLoader.load(imgName);
+            monster.material.map = textureLoader.load('image/' + imgName);
             monster.material.needsUpdate = true;
         }
 
