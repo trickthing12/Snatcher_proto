@@ -2,36 +2,32 @@
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
-    <title>3D Boss Fight Prototype - UI Update & Alpha Fix</title>
+    <title>3D Boss Fight Prototype - Death & Counter Attack</title>
     <style>
         body { margin: 0; overflow: hidden; background-color: #222; }
         
-        /* 좌측 상단: 현재 패턴만 표시 */
         #ui {
             position: absolute; top: 20px; left: 20px;
             color: white; font-family: sans-serif; font-size: 20px; font-weight: bold;
             text-shadow: 2px 2px 4px black; pointer-events: none; z-index: 10;
         }
 
-        /* 상단 중앙: 체력바 표시 */
         #hpUI {
             position: absolute; top: 20px; left: 50%;
-            transform: translateX(-50%); /* 정확히 가운데 정렬하는 CSS 마법 */
+            transform: translateX(-50%); 
             color: white; font-family: sans-serif; font-size: 22px; font-weight: bold;
             text-shadow: 2px 2px 4px black; pointer-events: none; z-index: 10;
             text-align: center;
         }
 
-        /* 우측 상단: 패턴 가이드 표시 */
         #guideUI {
             position: absolute; top: 20px; right: 20px;
-            background-color: rgba(0, 0, 0, 0.6); /* 반투명 검은색 배경 */
+            background-color: rgba(0, 0, 0, 0.6); 
             padding: 15px; border-radius: 8px;
             color: #ddd; font-family: sans-serif; font-size: 14px; line-height: 1.6;
             text-shadow: 1px 1px 2px black; pointer-events: none; z-index: 10;
         }
 
-        /* 시작 화면 */
         #blocker {
             position: absolute; width: 100%; height: 100%;
             background-color: rgba(0,0,0,0.8); display: flex;
@@ -59,7 +55,7 @@
     <div id="guideUI">
         <strong style="color: #ffaa00; font-size: 16px;">[ 몬스터 패턴 가이드 ]</strong><br>
         1. 한 발톱 베기 (근접 상시)<br>
-        2. 양 발톱 내려찍기 (근접 상시)<br>
+        <span style="color: #bb88ff;">2. 양 발톱 내려찍기 (플레이어 무빙 시 추적)</span><br>
         3. 돌진 (근접 상시)<br>
         <span style="color: #ff5555;">4. 잡기 (5초 이상 근접 시)</span><br>
         5. 찌르기 (원거리 시)<br>
@@ -84,13 +80,12 @@
         player.position.y = 1;
         scene.add(player);
 
-        // 🌟 텍스처 로더 설정 및 alphaTest 추가 (투명 배경 문제 해결!)
         const textureLoader = new THREE.TextureLoader();
         const monsterMat = new THREE.MeshBasicMaterial({ 
             map: textureLoader.load('image/idle.png'), 
             side: THREE.DoubleSide,
             transparent: true,
-            alphaTest: 0.5 // 투명도가 절반 이하인 픽셀을 강제로 깎아내서 하얀 테두리를 없앱니다.
+            alphaTest: 0.5 
         });
         
         const monster = new THREE.Mesh(new THREE.PlaneGeometry(5, 5), monsterMat);
@@ -100,9 +95,11 @@
         let monsterHealth = 1000;
         let playerHealth = 100;
         let isGrabbed = false; 
+        let isDead = false; // 🌟 몬스터 사망 플래그
         
         const uiMonsterHP = document.getElementById('monsterHP');
         const uiPlayerHP = document.getElementById('playerHP');
+        const uiPattern = document.getElementById('patternName');
 
         // ==========================================
         // 2. 입력 제어 (카메라, 이동, 플레이어 공격)
@@ -128,9 +125,11 @@
         window.addEventListener('keyup', e => keys[e.code] = false);
 
         window.addEventListener('mousedown', (e) => {
-            if (document.pointerLockElement && e.button === 0 && !isGrabbed) {
+            // 🌟 몬스터가 죽었으면 공격 불가
+            if (document.pointerLockElement && e.button === 0 && !isGrabbed && !isDead) {
                 if (player.position.distanceTo(monster.position) <= 6.0) { 
                     monsterHealth -= 50;
+                    if (monsterHealth <= 0) monsterHealth = 0;
                     uiMonsterHP.innerText = monsterHealth;
                     monster.material.color.setHex(0xffaaaa); 
                     setTimeout(() => monster.material.color.setHex(0xffffff), 100); 
@@ -225,7 +224,8 @@
             ],
             DOUBLE_SLAM: [
                 ['double_windup.png', 0.8], 
-                ['double_attack.png', 0.4, () => takeDamage(20)], 
+                // 🌟 제자리 타격이 아닌, 돌진 속도 12, 데미지 20으로 짧게 파고들며 공격
+                ['double_attack.png', 0.4, () => startDash(12, 20)], 
                 ['idle.png', 1.0]
             ],
             CHARGE: [
@@ -267,7 +267,10 @@
         const RANGED_RANGE = 12.0; 
         const MONSTER_SPEED = 4.0; 
 
-        const uiPattern = document.getElementById('patternName');
+        // 🌟 플레이어 무빙(왓다리 갓다리) 감지용 변수
+        let lastPlayerPos = new THREE.Vector3();
+        let lastMoveDir = new THREE.Vector3();
+        let zigzagCount = 0; 
 
         function startPattern(patternName) {
             currentSequence = PATTERNS[patternName];
@@ -279,7 +282,6 @@
             updateMonsterImage(currentSequence[0][0]);
         }
 
-        // 이미지 경로에 'image/'를 붙여 텍스처 업데이트
         function updateMonsterImage(imgName) {
             monster.material.map = textureLoader.load('image/' + imgName);
             monster.material.needsUpdate = true;
@@ -325,8 +327,34 @@
         }
 
         function updateMonsterAI(dt) {
+            // 🌟 1. 체력이 0이면 사망 처리 후 모든 행동 완전 중지
+            if (monsterHealth <= 0) {
+                if (!isDead) {
+                    isDead = true;
+                    isAttacking = false;
+                    currentDashSpeed = 0;
+                    uiPattern.innerText = '사망 (DEAD)';
+                    uiPattern.style.color = '#ff0000';
+                    updateMonsterImage('idle.png'); // 사망 모션 png가 있다면 교체 가능
+                }
+                return; // 사망 시 아래 로직(추적, 공격 등)을 아예 실행하지 않음
+            }
+
             monster.quaternion.copy(camera.quaternion); 
             const dist = player.position.distanceTo(monster.position);
+
+            // 🌟 2. 플레이어 '왓다리 갓다리' 무빙 감지 로직
+            const moveDelta = new THREE.Vector3().subVectors(player.position, lastPlayerPos);
+            if (moveDelta.lengthSq() > 0.001) {
+                moveDelta.normalize();
+                // 이전 이동 방향과 현재 이동 방향이 많이 꺾였을 때 (내적 계산)
+                if (moveDelta.dot(lastMoveDir) < -0.2) {
+                    zigzagCount += 1.0; // 지그재그 카운트 증가
+                }
+                lastMoveDir.copy(moveDelta);
+                lastPlayerPos.copy(player.position);
+            }
+            zigzagCount = Math.max(0, zigzagCount - dt * 1.5); // 안 움직이면 스택 감소
 
             if (!isAttacking) {
                 if (dist > MIN_DISTANCE) {
@@ -343,14 +371,24 @@
                     return; 
                 }
 
-                if (timeNearPlayer >= 5.0) {
+                // 🌟 3. 조건별 패턴 발동 (무빙 카운터 추가)
+                if (zigzagCount >= 2.5 && dist <= MELEE_RANGE + 2.0) {
+                    // 유저가 근처에서 심하게 무빙을 칠 때 카운터 발동!
+                    console.log("무빙 캐치! 양 발톱 내려찍기 발동!");
+                    startPattern('DOUBLE_SLAM');
+                    zigzagCount = 0; // 스택 초기화
+                } 
+                else if (timeNearPlayer >= 5.0) {
                     startPattern('GRAB');
                     timeNearPlayer = 0;
-                } else if (dist >= RANGED_RANGE) {
+                } 
+                else if (dist >= RANGED_RANGE) {
                     const rangedPatterns = ['PIERCE', 'COIN', 'POISON'];
                     startPattern(rangedPatterns[Math.floor(Math.random() * rangedPatterns.length)]);
-                } else if (dist <= MELEE_RANGE && dist > MIN_DISTANCE - 1) {
-                    const meleePatterns = ['SLASH', 'DOUBLE_SLAM', 'CHARGE'];
+                } 
+                else if (dist <= MELEE_RANGE && dist > MIN_DISTANCE - 1) {
+                    // 2번(DOUBLE_SLAM)은 무빙 조건으로 빠졌으므로 1번, 3번만 랜덤 발동
+                    const meleePatterns = ['SLASH', 'CHARGE'];
                     startPattern(meleePatterns[Math.floor(Math.random() * meleePatterns.length)]);
                 }
             } else {
