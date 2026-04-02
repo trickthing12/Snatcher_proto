@@ -2,7 +2,7 @@
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
-    <title>3D Boss Fight Prototype - Triple Dash Update</title>
+    <title>3D Boss Fight Prototype - Pause Update</title>
     <style>
         body { margin: 0; overflow: hidden; background-color: #222; }
         
@@ -46,7 +46,7 @@
 </head>
 <body>
     <div id="blocker">
-        화면을 클릭하여 전투 시작<br>
+        화면을 클릭하여 전투 시작 / 일시정지 해제<br>
         <span style="font-size:16px; color:#aaa; margin-top: 10px;">(좌클릭: 공격 / WASD: 이동 / 마우스: 화면 회전 / ESC: 일시정지)</span>
     </div>
 
@@ -269,21 +269,16 @@
             GRAB: [
                 ['grab_try.png', 0.7, () => checkGrab()]
             ],
-            // 🌟 PIERCE 패턴 3연속 콤보로 수정
             PIERCE: [
-                // 1타
                 ['jump_ready.png', 0.5], 
                 ['pierce_jump.png', 0.2], 
                 ['pierce_dash.png', 0.5, () => startDash(35, 25)], 
-                // 2타 (연속 공격의 느낌을 주기 위해 준비 시간을 0.3초로 단축)
                 ['jump_ready.png', 0.3], 
                 ['pierce_jump.png', 0.2], 
                 ['pierce_dash.png', 0.5, () => startDash(35, 25)], 
-                // 3타
                 ['jump_ready.png', 0.3], 
                 ['pierce_jump.png', 0.2], 
                 ['pierce_dash.png', 0.5, () => startDash(35, 25)], 
-                // 종료
                 ['idle.png', 1.0]
             ],
             COIN: [
@@ -340,7 +335,6 @@
         }
 
         function startDash(speed, damage) {
-            // 🌟 람다 함수를 통해 매번 다시 실행되므로, 2타/3타 때도 플레이어의 현재 위치를 새롭게 추적합니다!
             dashDirection.subVectors(player.position, monster.position).normalize();
             dashDirection.y = 0; 
             currentDashSpeed = speed;
@@ -514,6 +508,11 @@
             timeNearPlayer = 0;
             attackCooldown = 0;
 
+            isAttacking = false;
+            currentSequence = PATTERNS.IDLE;
+            sequenceIndex = 0;
+            frameTimer = 0;
+
             player.position.set(0, 1, 0);
             monster.position.set(0, 2.5, -15);
             yaw = 0; pitch = 0;
@@ -523,8 +522,9 @@
             puddles.forEach(p => scene.remove(p.mesh));
             puddles.length = 0;
 
-            startPattern('IDLE');
+            uiPattern.innerText = '대기 (IDLE)';
             uiPattern.style.color = '#ffaa00';
+            updateMonsterImage('idle.png');
 
             gameOverUI.style.display = 'none';
             blocker.style.display = 'flex';
@@ -540,7 +540,10 @@
 
             checkGameOver();
 
-            if (!isGameOver) {
+            // 🌟 마우스가 잠겨있을 때(플레이 중일 때)만 로직을 업데이트하도록 추가했습니다.
+            const isPlaying = document.pointerLockElement === document.body;
+
+            if (!isGameOver && isPlaying) {
                 movePlayer(dt);
                 updateProjectiles(dt); 
                 updateMonsterAI(dt);
