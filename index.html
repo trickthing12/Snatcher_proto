@@ -2,7 +2,7 @@
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
-    <title>3D Boss Fight Prototype - Retreat Poison Cloud</title>
+    <title>3D Boss Fight Prototype - Cooldown & Slow Tempo</title>
     <style>
         body { margin: 0; overflow: hidden; background-color: #222; }
         
@@ -57,7 +57,10 @@
     
     <div id="ui">
         현재 패턴: <span id="patternName" style="color: #ffaa00;">대기 (IDLE)</span><br>
-        <span style="font-size: 16px; color: #aaa;">누적 딜량: <span id="dmgUI">0</span> / 100 (회피)</span>
+        <span style="font-size: 16px; color: #aaa;">
+            누적 딜량: <span id="dmgUI">0</span> / 100 
+            <span id="coolUI" style="color:#ff5555; margin-left: 10px;"></span>
+        </span>
     </div>
 
     <div id="hpUI">
@@ -75,7 +78,7 @@
         6. 금화 투척 (원거리)<br>
         <span style="color: #00ff44;">7. 독 투척 (원거리)</span><br>
         8. 광역 충격파 (1.5초 이상 근접 시)<br>
-        <span style="color: #ffaaaa;">9. 맹독 후방 도약 (피해 100 누적 시)</span>
+        <span style="color: #ffaaaa;">9. 맹독 후방 도약 (피해 100 누적 시 / 쿨타임 5초)</span>
     </div>
 
     <script>
@@ -117,11 +120,13 @@
         let isGameOver = false; 
 
         let accumulatedDamage = 0;
+        let retreatCooldown = 0; // 🌟 후방 도약 쿨타임 변수
         
         const uiMonsterHP = document.getElementById('monsterHP');
         const uiPlayerHP = document.getElementById('playerHP');
         const uiPattern = document.getElementById('patternName');
         const uiDmg = document.getElementById('dmgUI');
+        const uiCool = document.getElementById('coolUI');
         const blocker = document.getElementById('blocker');
         const gameOverUI = document.getElementById('gameOverUI');
         const gameOverText = document.getElementById('gameOverText');
@@ -182,14 +187,19 @@
                         monster.material.color.setHex(0xffaaaa); 
                         setTimeout(() => monster.material.color.setHex(0xffffff), 100); 
 
+                        // 🌟 딜 누적 및 쿨타임 로직
                         accumulatedDamage += 50;
-                        uiDmg.innerText = accumulatedDamage;
                         
                         if (accumulatedDamage >= 100) {
-                            accumulatedDamage = 0; 
-                            uiDmg.innerText = accumulatedDamage;
-                            startPattern('RETREAT_CHARGE'); 
+                            accumulatedDamage = 0; // 일단 데미지는 초기화
+                            
+                            // 🌟 쿨타임이 0 이하일 때만 발동
+                            if (retreatCooldown <= 0) {
+                                retreatCooldown = 5.0; // 5초 쿨타임 적용
+                                startPattern('RETREAT_CHARGE'); 
+                            }
                         }
+                        uiDmg.innerText = accumulatedDamage;
                     }
                 }
             }
@@ -248,7 +258,6 @@
             puddles.push({ mesh, timer: 6.0, radius: radius }); 
         }
 
-        // 🌟 수정됨: 지정된 위치(pos)에 거대한 독 장판 생성
         function spawnPoisonCloud(pos) {
             createPoisonPuddle(pos, 7.0); 
         }
@@ -282,7 +291,7 @@
         }
 
         // ==========================================
-        // 4. 몬스터 패턴 구조 및 AI 변수
+        // 4. 몬스터 패턴 구조 및 AI 변수 (🌟 모든 패턴 0.5배속, 시간 대폭 연장)
         // ==========================================
         let dashDirection = new THREE.Vector3();
         let currentDashSpeed = 0;
@@ -327,82 +336,81 @@
             jumpHeight = height;
         }
 
+        // 🌟 모든 동작 시간(frameTimer) 약 1.5배~2배 연장
         const PATTERNS = {
             IDLE: [ ['idle.png', 1000] ],
             SLASH: [
-                ['slash_windup.png', 0.4], 
-                ['slash_attack.png', 0.3, () => takeDamage(10)], 
-                ['idle.png', 0.5] 
+                ['slash_windup.png', 0.6], // 선딜 증가
+                ['slash_attack.png', 0.4, () => takeDamage(10)], // 공격 판정 시간 증가
+                ['idle.png', 0.7] // 후딜 증가
             ],
             DOUBLE_SLAM: [
-                ['double_windup.png', 0.5], 
-                ['double_attack.png', 0.4, () => startDash(15, 20)], 
-                ['idle.png', 0.7] 
+                ['double_windup.png', 0.7], 
+                ['double_attack.png', 0.6, () => startDash(10, 20)], // 돌진 속도는 낮추고 시간은 길게
+                ['idle.png', 1.0] 
             ],
             CHARGE: [
-                ['jump_ready.png', 0.4], 
-                ['jump_air.png', 0.9, () => startJump(10, 0.9)], 
-                ['jump_slam.png', 0.4, () => landAndDamage(25)], 
-                ['idle.png', 0.7]
+                ['jump_ready.png', 0.6], 
+                ['jump_air.png', 1.5, () => startJump(10, 1.5)], // 1.5초 동안 체공 (확실히 볼 수 있음)
+                ['jump_slam.png', 0.6, () => landAndDamage(25)], 
+                ['idle.png', 1.0]
             ],
-            // 🌟 수정됨: 거리를 벌릴 때 현재 위치(자신의 발밑)에 거대한 독 구름을 살포합니다.
             RETREAT_CHARGE: [
-                ['jump_ready.png', 0.2], 
-                ['jump_air.png', 0.6, () => {
-                    spawnPoisonCloud(monster.position.clone()); // 도약 직전에 있던 자리에 독 뿌리기
-                    startRetreatJump(10, 0.6);
+                ['jump_ready.png', 0.4], 
+                ['jump_air.png', 1.0, () => {
+                    spawnPoisonCloud(monster.position.clone()); 
+                    startRetreatJump(10, 1.0); // 1.0초 동안 뒤로 천천히 뜀
                 }], 
-                ['jump_slam.png', 0.2, () => {
+                ['jump_slam.png', 0.4, () => {
                     isJumping = false;
                     monster.position.y = 5.0;
                 }], 
-                ['idle.png', 0.4]
+                ['idle.png', 0.6]
             ],
             GRAB: [
-                ['grab_try.png', 0.7, () => checkGrab()]
+                ['grab_try.png', 1.0, () => checkGrab()] // 잡기 모션도 확연히 길어짐
             ],
             SHOCKWAVE: [
-                ['double_windup.png', 0.5], 
-                ['double_attack.png', 0.4, () => executeShockwave(10, 15.0)], 
-                ['idle.png', 0.7]
+                ['double_windup.png', 0.7], 
+                ['double_attack.png', 0.6, () => executeShockwave(10, 15.0)], 
+                ['idle.png', 1.0]
             ],
             PIERCE: [
-                ['jump_ready.png', 0.4], 
-                ['pierce_jump.png', 0.2], 
-                ['pierce_dash.png', 0.4, () => startDash(30, 25)], 
-                ['jump_ready.png', 0.3], 
-                ['pierce_jump.png', 0.2], 
-                ['pierce_dash.png', 0.4, () => startDash(30, 25)], 
-                ['jump_ready.png', 0.3], 
-                ['pierce_jump.png', 0.2], 
-                ['pierce_dash.png', 0.4, () => startDash(30, 25)], 
-                ['idle.png', 0.8]
+                ['jump_ready.png', 0.6], 
+                ['pierce_jump.png', 0.3], 
+                ['pierce_dash.png', 0.6, () => startDash(20, 25)], // 속도 30 -> 20으로 완화
+                ['jump_ready.png', 0.5], 
+                ['pierce_jump.png', 0.3], 
+                ['pierce_dash.png', 0.6, () => startDash(20, 25)], 
+                ['jump_ready.png', 0.5], 
+                ['pierce_jump.png', 0.3], 
+                ['pierce_dash.png', 0.6, () => startDash(20, 25)], 
+                ['idle.png', 1.2]
             ],
             SHOCKWAVE_PIERCE: [
-                ['double_windup.png', 0.5], 
-                ['double_attack.png', 0.4, () => executeShockwave(15, 12.0)], 
-                ['pierce_ready.png', 0.4], 
-                ['pierce_jump.png', 0.2], 
-                ['pierce_dash.png', 0.4, () => startDash(30, 25)], 
-                ['pierce_ready.png', 0.3], 
-                ['pierce_jump.png', 0.2], 
-                ['pierce_dash.png', 0.4, () => startDash(30, 25)], 
-                ['pierce_ready.png', 0.3], 
-                ['pierce_jump.png', 0.2], 
-                ['pierce_dash.png', 0.4, () => startDash(30, 25)], 
-                ['idle.png', 0.8]
+                ['double_windup.png', 0.7], 
+                ['double_attack.png', 0.6, () => executeShockwave(15, 12.0)], 
+                ['pierce_ready.png', 0.6], 
+                ['pierce_jump.png', 0.3], 
+                ['pierce_dash.png', 0.6, () => startDash(20, 25)], 
+                ['pierce_ready.png', 0.5], 
+                ['pierce_jump.png', 0.3], 
+                ['pierce_dash.png', 0.6, () => startDash(20, 25)], 
+                ['pierce_ready.png', 0.5], 
+                ['pierce_jump.png', 0.3], 
+                ['pierce_dash.png', 0.6, () => startDash(20, 25)], 
+                ['idle.png', 1.2]
             ],
             COIN: [
-                ['coin_ready.png', 0.5], 
-                ['coin_hold.png', 0.3], 
-                ['coin_throw.png', 0.4, () => spawnProjectile('coin')], 
-                ['idle.png', 0.8]
+                ['coin_ready.png', 0.7], 
+                ['coin_hold.png', 0.5], 
+                ['coin_throw.png', 0.6, () => spawnProjectile('coin')], 
+                ['idle.png', 1.0]
             ],
-            // 🌟 수정됨: 일반 POISON 패턴은 다시 독을 던지도록 복구
             POISON: [
-                ['poison_ready.png', 0.5], 
-                ['poison_throw.png', 0.4, () => spawnProjectile('poison')], 
-                ['idle.png', 0.8]
+                ['poison_ready.png', 0.7], 
+                ['poison_throw.png', 0.6, () => spawnProjectile('poison')], 
+                ['idle.png', 1.0]
             ]
         };
 
@@ -499,6 +507,14 @@
         }
 
         function updateMonsterAI(dt) {
+            // 🌟 쿨타임 업데이트 로직
+            if (retreatCooldown > 0) {
+                retreatCooldown -= dt;
+                uiCool.innerText = `(회피 대기 중: ${retreatCooldown.toFixed(1)}초)`;
+            } else {
+                uiCool.innerText = ''; // 쿨타임이 끝나면 텍스트 숨김
+            }
+
             monster.quaternion.copy(camera.quaternion); 
             const dist = player.position.distanceTo(monster.position);
 
@@ -543,7 +559,6 @@
                         const shockPatterns = ['SHOCKWAVE', 'SHOCKWAVE_PIERCE'];
                         startPattern(shockPatterns[Math.floor(Math.random() * shockPatterns.length)]);
                     } else {
-                        // 🌟 근접 무작위 패턴에서 독 장판은 제외하고 베기와 급습만 남깁니다.
                         const meleePatterns = ['SLASH', 'CHARGE'];
                         startPattern(meleePatterns[Math.floor(Math.random() * meleePatterns.length)]);
                     }
@@ -578,7 +593,7 @@
                         currentSequence = PATTERNS.IDLE;
                         uiPattern.innerText = '대기 (IDLE)';
                         updateMonsterImage('idle.png');
-                        attackCooldown = 0.8; 
+                        attackCooldown = 1.2; // 🌟 쿨타임도 1.2초로 늘려 플레이어의 딜타임 확보
                     } else {
                         const currentFrame = currentSequence[sequenceIndex];
                         updateMonsterImage(currentFrame[0]);
@@ -628,7 +643,9 @@
             timeNearPlayer = 0;
             attackCooldown = 0;
             accumulatedDamage = 0; 
+            retreatCooldown = 0; // 🌟 쿨타임 초기화
             uiDmg.innerText = 0;
+            uiCool.innerText = '';
 
             isAttacking = false;
             currentSequence = PATTERNS.IDLE;
