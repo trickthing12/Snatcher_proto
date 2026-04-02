@@ -2,7 +2,7 @@
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
-    <title>3D Boss Fight Prototype - Player Animation</title>
+    <title>3D Boss Fight Prototype - Advanced Combo AI</title>
     <style>
         body { margin: 0; overflow: hidden; background-color: #222; }
         
@@ -66,13 +66,14 @@
 
     <div id="guideUI">
         <strong style="color: #ffaa00; font-size: 16px;">[ 몬스터 패턴 가이드 ]</strong><br>
-        1. 한 발톱 베기 (근접 상시)<br>
-        <span style="color: #bb88ff;">2. 양 발톱 내려찍기 (플레이어 무빙 시 카운터)</span><br>
-        <span style="color: #00ffcc;">3. 도약 급습 (근접 상시)</span><br>
+        1. 한 발톱 베기 (근접)<br>
+        <span style="color: #bb88ff;">2. 양 발톱 내려찍기 (무빙 카운터)</span><br>
+        <span style="color: #00ffcc;">3. 도약 급습 (근접)</span><br>
         <span style="color: #ff5555;">4. 잡기 (5초 이상 근접 시)</span><br>
-        <span style="color: #ffaa00;">5. 연속 찌르기 (3연속 돌진, 원거리 시)</span><br>
+        5. 연속 찌르기 (원거리 시)<br>
         6. 금화 투척 (원거리 시)<br>
-        7. 독 안개 (원거리 시)
+        <span style="color: #00ff44;">7. 독 안개 (근접/원거리 공통)</span><br>
+        <span style="color: #ffaa00;">8. 충격파 밀쳐내기 -> 3연속 찌르기 (근접 누적 시 발동)</span>
     </div>
 
     <script>
@@ -90,29 +91,22 @@
 
         const textureLoader = new THREE.TextureLoader();
 
-        // 🌟 플레이어 객체를 BoxGeometry에서 몬스터와 같은 PlaneGeometry(빌보드)로 변경
         const playerMat = new THREE.MeshBasicMaterial({ 
             map: textureLoader.load('image/player_idle.png'), 
-            side: THREE.DoubleSide,
-            transparent: true,
-            alphaTest: 0.5 
+            side: THREE.DoubleSide, transparent: true, alphaTest: 0.5 
         });
         const player = new THREE.Mesh(new THREE.PlaneGeometry(3, 3), playerMat);
-        player.position.set(0, 1.5, 0); // 크기에 맞춰 바닥 위로 띄움
+        player.position.set(0, 1.5, 0); 
         scene.add(player);
 
-        // 몬스터 객체
         const monsterMat = new THREE.MeshBasicMaterial({ 
             map: textureLoader.load('image/idle.png'), 
-            side: THREE.DoubleSide,
-            transparent: true,
-            alphaTest: 0.5 
+            side: THREE.DoubleSide, transparent: true, alphaTest: 0.5 
         });
         const monster = new THREE.Mesh(new THREE.PlaneGeometry(5, 5), monsterMat);
         monster.position.set(0, 2.5, -15);
         scene.add(monster);
 
-        // 🌟 전투 시스템 및 게임 상태 변수
         let monsterHealth = 1000;
         let playerHealth = 100;
         let isGrabbed = false; 
@@ -133,10 +127,9 @@
         const cameraDistance = 8;
         const keys = {};
 
-        // 🌟 플레이어 애니메이션 상태 변수
         let playerIsAttacking = false;
         let playerAttackTimer = 0;
-        const PLAYER_ATTACK_DURATION = 0.3; // 공격 모션 유지 시간 (0.3초)
+        const PLAYER_ATTACK_DURATION = 0.3; 
 
         function updatePlayerImage(imgName) {
             player.material.map = textureLoader.load('image/' + imgName);
@@ -163,24 +156,18 @@
         });
         
         window.addEventListener('keydown', (e) => {
-            if (e.code === 'Escape' && isGameOver) {
-                resetGame();
-            } else {
-                keys[e.code] = true;
-            }
+            if (e.code === 'Escape' && isGameOver) resetGame();
+            else keys[e.code] = true;
         });
         window.addEventListener('keyup', e => keys[e.code] = false);
 
         window.addEventListener('mousedown', (e) => {
             if (document.pointerLockElement && e.button === 0 && !isGrabbed && !isGameOver) {
-                
-                // 🌟 플레이어 공격 애니메이션 시작
                 if (!playerIsAttacking) {
                     playerIsAttacking = true;
                     playerAttackTimer = PLAYER_ATTACK_DURATION;
                     updatePlayerImage('player_attack.png');
 
-                    // 타격 판정 및 이펙트
                     if (player.position.distanceTo(monster.position) <= 6.0) { 
                         monsterHealth -= 50;
                         uiMonsterHP.innerText = monsterHealth;
@@ -202,21 +189,16 @@
             if (move.lengthSq() > 0) {
                 move.normalize().applyAxisAngle(new THREE.Vector3(0,1,0), yaw);
                 player.position.addScaledVector(move, 12 * dt); 
-                // 🌟 평면(Plane)을 사용하므로, 이동 방향으로 메쉬를 회전시키던 코드는 삭제했습니다.
-                // 대신 아래쪽 animate 루프에서 항상 카메라를 보게(빌보드) 만듭니다.
             }
         }
 
-        // 🌟 플레이어 애니메이션 업데이트 함수
         function updatePlayerAnim(dt) {
-            // 플레이어도 몬스터처럼 항상 카메라를 바라보게 설정 (빌보드)
             player.quaternion.copy(camera.quaternion);
-
             if (playerIsAttacking) {
                 playerAttackTimer -= dt;
                 if (playerAttackTimer <= 0) {
                     playerIsAttacking = false;
-                    updatePlayerImage('player_idle.png'); // 시간이 지나면 대기 상태로 복귀
+                    updatePlayerImage('player_idle.png'); 
                 }
             }
         }
@@ -291,6 +273,20 @@
         let jumpDuration = 1.0; 
         let jumpHeight = 10; 
 
+        // 🌟 충격파 함수: 플레이어에게 데미지를 주고 뒤로 밀쳐냅니다.
+        function executeShockwave(damage, pushForce) {
+            if (player.position.distanceTo(monster.position) <= MELEE_RANGE + 3.0) { // 충격파는 범위가 조금 더 넓습니다.
+                playerHealth -= damage;
+                uiPlayerHP.innerText = Math.floor(playerHealth);
+                flashPlayerRed();
+
+                // 밀쳐내기 (Knockback)
+                const pushDir = new THREE.Vector3().subVectors(player.position, monster.position).normalize();
+                pushDir.y = 0; 
+                player.position.addScaledVector(pushDir, pushForce);
+            }
+        }
+
         const PATTERNS = {
             IDLE: [ ['idle.png', 1000] ],
             SLASH: [
@@ -320,6 +316,21 @@
                 ['pierce_jump.png', 0.2], 
                 ['pierce_dash.png', 0.5, () => startDash(35, 25)], 
                 ['jump_ready.png', 0.3], 
+                ['pierce_jump.png', 0.2], 
+                ['pierce_dash.png', 0.5, () => startDash(35, 25)], 
+                ['idle.png', 1.0]
+            ],
+            // 🌟 신규: 충격파 후 3연속 찌르기 연계 콤보
+            SHOCKWAVE_PIERCE: [
+                ['double_windup.png', 0.7], 
+                ['double_attack.png', 0.4, () => executeShockwave(15, 10.0)], // 10.0의 힘으로 밀쳐냄!
+                ['pierce_ready.png', 0.5], 
+                ['pierce_jump.png', 0.2], 
+                ['pierce_dash.png', 0.5, () => startDash(35, 25)], 
+                ['pierce_ready.png', 0.3], 
+                ['pierce_jump.png', 0.2], 
+                ['pierce_dash.png', 0.5, () => startDash(35, 25)], 
+                ['pierce_ready.png', 0.3], 
                 ['pierce_jump.png', 0.2], 
                 ['pierce_dash.png', 0.5, () => startDash(35, 25)], 
                 ['idle.png', 1.0]
@@ -406,7 +417,7 @@
 
         function flashPlayerRed() {
             player.material.color.setHex(0xff0000);
-            setTimeout(() => player.material.color.setHex(0xaaaaaa), 200); // 🌟 평면은 기본색상을 흰색계열로 복구
+            setTimeout(() => player.material.color.setHex(0xaaaaaa), 200); 
         }
 
         function checkGrab() {
@@ -463,12 +474,18 @@
                     startPattern('GRAB');
                     timeNearPlayer = 0;
                 } 
+                // 🌟 신규: 3초 이상 근접 시 높은 확률로 충격파 콤보 발동!
+                else if (timeNearPlayer >= 3.0 && Math.random() < 0.6) {
+                    startPattern('SHOCKWAVE_PIERCE');
+                    timeNearPlayer = 0;
+                }
                 else if (dist >= RANGED_RANGE) {
                     const rangedPatterns = ['PIERCE', 'COIN', 'POISON'];
                     startPattern(rangedPatterns[Math.floor(Math.random() * rangedPatterns.length)]);
                 } 
                 else if (dist <= MELEE_RANGE && dist > MIN_DISTANCE - 1) {
-                    const meleePatterns = ['SLASH', 'CHARGE'];
+                    // 🌟 POISON을 근접 패턴(meleePatterns) 배열에도 추가했습니다!
+                    const meleePatterns = ['SLASH', 'CHARGE', 'POISON'];
                     startPattern(meleePatterns[Math.floor(Math.random() * meleePatterns.length)]);
                 }
             } else {
@@ -501,7 +518,9 @@
                         currentSequence = PATTERNS.IDLE;
                         uiPattern.innerText = '대기 (IDLE)';
                         updateMonsterImage('idle.png');
-                        attackCooldown = 1.5; 
+                        
+                        // 🌟 공격 쿨타임을 1.5초에서 0.8초로 대폭 단축하여 템포 상승!
+                        attackCooldown = 0.8; 
                     } else {
                         const currentFrame = currentSequence[sequenceIndex];
                         updateMonsterImage(currentFrame[0]);
@@ -556,7 +575,7 @@
             sequenceIndex = 0;
             frameTimer = 0;
 
-            player.position.set(0, 1.5, 0); // 🌟 y좌표 1.5로 맞춤
+            player.position.set(0, 1.5, 0); 
             monster.position.set(0, 2.5, -15);
             yaw = 0; pitch = 0;
             
@@ -569,7 +588,6 @@
             uiPattern.style.color = '#ffaa00';
             updateMonsterImage('idle.png');
 
-            // 🌟 플레이어 상태도 초기화
             playerIsAttacking = false;
             updatePlayerImage('player_idle.png');
 
@@ -591,13 +609,13 @@
 
             if (!isGameOver && isPlaying) {
                 movePlayer(dt);
-                updatePlayerAnim(dt); // 🌟 플레이어 빌보드 및 애니메이션 타이머 업데이트
+                updatePlayerAnim(dt); 
                 updateProjectiles(dt); 
                 updateMonsterAI(dt);
             }
 
             const cx = player.position.x + cameraDistance * Math.sin(yaw) * Math.cos(pitch);
-            const cy = player.position.y + 2 - cameraDistance * Math.sin(pitch); // 카메라 높이 조절
+            const cy = player.position.y + 2 - cameraDistance * Math.sin(pitch); 
             const cz = player.position.z + cameraDistance * Math.cos(yaw) * Math.cos(pitch);
             camera.position.set(cx, cy, cz);
             camera.lookAt(player.position.x, player.position.y+1, player.position.z);
