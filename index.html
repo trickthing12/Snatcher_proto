@@ -2,7 +2,7 @@
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
-    <title>3D Boss Fight Prototype - Death & Counter Attack</title>
+    <title>3D Boss Fight Prototype - Game Over & Reset</title>
     <style>
         body { margin: 0; overflow: hidden; background-color: #222; }
         
@@ -30,9 +30,17 @@
 
         #blocker {
             position: absolute; width: 100%; height: 100%;
-            background-color: rgba(0,0,0,0.8); display: flex;
+            background-color: rgba(0,0,0,0.8); display: flex; flex-direction: column;
             justify-content: center; align-items: center; text-align: center;
             color: white; font-size: 24px; cursor: pointer; z-index: 20;
+        }
+
+        /* 🌟 새로 추가된 게임 오버 UI */
+        #gameOverUI {
+            position: absolute; width: 100%; height: 100%;
+            background-color: rgba(0,0,0,0.85); display: none; flex-direction: column;
+            justify-content: center; align-items: center; text-align: center;
+            color: #ff4444; font-size: 36px; font-weight: bold; z-index: 30;
         }
     </style>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
@@ -40,7 +48,12 @@
 <body>
     <div id="blocker">
         화면을 클릭하여 전투 시작<br>
-        <span style="font-size:16px; color:#aaa;">(좌클릭: 공격 / WASD: 이동 / 마우스: 화면 회전 / ESC: 마우스 해제)</span>
+        <span style="font-size:16px; color:#aaa; margin-top: 10px;">(좌클릭: 공격 / WASD: 이동 / 마우스: 화면 회전 / ESC: 일시정지)</span>
+    </div>
+
+    <div id="gameOverUI">
+        <span id="gameOverText">전투 시뮬레이션이 종료되었습니다.</span><br>
+        <span style="font-size: 18px; color: #aaa; margin-top: 15px;">(ESC 키를 눌러 게임 초기화 및 다시 시작)</span>
     </div>
     
     <div id="ui">
@@ -55,8 +68,8 @@
     <div id="guideUI">
         <strong style="color: #ffaa00; font-size: 16px;">[ 몬스터 패턴 가이드 ]</strong><br>
         1. 한 발톱 베기 (근접 상시)<br>
-        <span style="color: #bb88ff;">2. 양 발톱 내려찍기 (플레이어 무빙 시 추적)</span><br>
-        3. 돌진 (근접 상시)<br>
+        <span style="color: #bb88ff;">2. 양 발톱 내려찍기 (플레이어 무빙 시 카운터)</span><br>
+        <span style="color: #00ffcc;">3. 도약 급습 (근접 상시)</span><br>
         <span style="color: #ff5555;">4. 잡기 (5초 이상 근접 시)</span><br>
         5. 찌르기 (원거리 시)<br>
         6. 금화 투척 (원거리 시)<br>
@@ -92,14 +105,19 @@
         monster.position.set(0, 2.5, -15);
         scene.add(monster);
 
+        // 🌟 전투 시스템 및 게임 상태 변수
         let monsterHealth = 1000;
         let playerHealth = 100;
         let isGrabbed = false; 
-        let isDead = false; // 🌟 몬스터 사망 플래그
+        let isDead = false; 
+        let isGameOver = false; // 게임 오버 상태 체크
         
         const uiMonsterHP = document.getElementById('monsterHP');
         const uiPlayerHP = document.getElementById('playerHP');
         const uiPattern = document.getElementById('patternName');
+        const blocker = document.getElementById('blocker');
+        const gameOverUI = document.getElementById('gameOverUI');
+        const gameOverText = document.getElementById('gameOverText');
 
         // ==========================================
         // 2. 입력 제어 (카메라, 이동, 플레이어 공격)
@@ -108,28 +126,41 @@
         const cameraDistance = 8;
         const keys = {};
 
-        const blocker = document.getElementById('blocker');
-        blocker.addEventListener('click', () => document.body.requestPointerLock());
+        blocker.addEventListener('click', () => {
+            if (!isGameOver) document.body.requestPointerLock();
+        });
+
+        // 마우스 잠금 해제 시 화면 처리
         document.addEventListener('pointerlockchange', () => { 
-            blocker.style.display = document.pointerLockElement ? 'none' : 'flex'; 
+            if (document.pointerLockElement) {
+                blocker.style.display = 'none'; 
+            } else {
+                // 게임 오버가 아닐 때만 일시정지(blocker) 화면 띄우기
+                if (!isGameOver) blocker.style.display = 'flex'; 
+            }
         });
         
         document.addEventListener('mousemove', (e) => {
-            if (document.pointerLockElement) {
+            if (document.pointerLockElement && !isGameOver) {
                 yaw -= e.movementX * 0.002;
                 pitch = Math.max(-Math.PI/2+0.1, Math.min(Math.PI/2-0.1, pitch - e.movementY * 0.002));
             }
         });
         
-        window.addEventListener('keydown', e => keys[e.code] = true);
+        window.addEventListener('keydown', (e) => {
+            // 🌟 게임 오버 상태일 때 ESC를 누르면 리셋
+            if (e.code === 'Escape' && isGameOver) {
+                resetGame();
+            } else {
+                keys[e.code] = true;
+            }
+        });
         window.addEventListener('keyup', e => keys[e.code] = false);
 
         window.addEventListener('mousedown', (e) => {
-            // 🌟 몬스터가 죽었으면 공격 불가
-            if (document.pointerLockElement && e.button === 0 && !isGrabbed && !isDead) {
+            if (document.pointerLockElement && e.button === 0 && !isGrabbed && !isGameOver) {
                 if (player.position.distanceTo(monster.position) <= 6.0) { 
                     monsterHealth -= 50;
-                    if (monsterHealth <= 0) monsterHealth = 0;
                     uiMonsterHP.innerText = monsterHealth;
                     monster.material.color.setHex(0xffaaaa); 
                     setTimeout(() => monster.material.color.setHex(0xffffff), 100); 
@@ -215,6 +246,13 @@
         let dashDamage = 0;
         let hasHitDuringDash = false;
 
+        let isJumping = false;
+        let jumpStartPos = new THREE.Vector3();
+        let jumpTargetPos = new THREE.Vector3();
+        let jumpProgress = 0;
+        let jumpDuration = 1.0; 
+        let jumpHeight = 10; 
+
         const PATTERNS = {
             IDLE: [ ['idle.png', 1000] ],
             SLASH: [
@@ -224,13 +262,13 @@
             ],
             DOUBLE_SLAM: [
                 ['double_windup.png', 0.8], 
-                // 🌟 제자리 타격이 아닌, 돌진 속도 12, 데미지 20으로 짧게 파고들며 공격
                 ['double_attack.png', 0.4, () => startDash(12, 20)], 
                 ['idle.png', 1.0]
             ],
             CHARGE: [
-                ['charge_ready.png', 0.5], 
-                ['charge_attack.png', 0.6, () => startDash(25, 15)], 
+                ['jump_ready.png', 0.5], 
+                ['jump_air.png', 1.0, () => startJump(10, 1.0)], 
+                ['jump_slam.png', 0.5, () => landAndDamage(25)], 
                 ['idle.png', 0.8]
             ],
             GRAB: [
@@ -267,7 +305,6 @@
         const RANGED_RANGE = 12.0; 
         const MONSTER_SPEED = 4.0; 
 
-        // 🌟 플레이어 무빙(왓다리 갓다리) 감지용 변수
         let lastPlayerPos = new THREE.Vector3();
         let lastMoveDir = new THREE.Vector3();
         let zigzagCount = 0; 
@@ -278,6 +315,7 @@
             frameTimer = currentSequence[0][1];
             isAttacking = true;
             currentDashSpeed = 0; 
+            isJumping = false; 
             uiPattern.innerText = patternName;
             updateMonsterImage(currentSequence[0][0]);
         }
@@ -301,6 +339,25 @@
             currentDashSpeed = speed;
             dashDamage = damage;
             hasHitDuringDash = false; 
+        }
+
+        function startJump(height, duration) {
+            isJumping = true;
+            jumpStartPos.copy(monster.position);
+            jumpTargetPos.copy(player.position); 
+            jumpProgress = 0;
+            jumpDuration = duration;
+            jumpHeight = height;
+        }
+
+        function landAndDamage(damage) {
+            isJumping = false;
+            monster.position.y = 2.5; 
+            if (player.position.distanceTo(monster.position) <= MELEE_RANGE + 1.0) { 
+                playerHealth -= damage;
+                uiPlayerHP.innerText = Math.floor(playerHealth);
+                flashPlayerRed();
+            }
         }
 
         function flashPlayerRed() {
@@ -327,34 +384,17 @@
         }
 
         function updateMonsterAI(dt) {
-            // 🌟 1. 체력이 0이면 사망 처리 후 모든 행동 완전 중지
-            if (monsterHealth <= 0) {
-                if (!isDead) {
-                    isDead = true;
-                    isAttacking = false;
-                    currentDashSpeed = 0;
-                    uiPattern.innerText = '사망 (DEAD)';
-                    uiPattern.style.color = '#ff0000';
-                    updateMonsterImage('idle.png'); // 사망 모션 png가 있다면 교체 가능
-                }
-                return; // 사망 시 아래 로직(추적, 공격 등)을 아예 실행하지 않음
-            }
-
             monster.quaternion.copy(camera.quaternion); 
             const dist = player.position.distanceTo(monster.position);
 
-            // 🌟 2. 플레이어 '왓다리 갓다리' 무빙 감지 로직
             const moveDelta = new THREE.Vector3().subVectors(player.position, lastPlayerPos);
             if (moveDelta.lengthSq() > 0.001) {
                 moveDelta.normalize();
-                // 이전 이동 방향과 현재 이동 방향이 많이 꺾였을 때 (내적 계산)
-                if (moveDelta.dot(lastMoveDir) < -0.2) {
-                    zigzagCount += 1.0; // 지그재그 카운트 증가
-                }
+                if (moveDelta.dot(lastMoveDir) < -0.2) zigzagCount += 1.0; 
                 lastMoveDir.copy(moveDelta);
                 lastPlayerPos.copy(player.position);
             }
-            zigzagCount = Math.max(0, zigzagCount - dt * 1.5); // 안 움직이면 스택 감소
+            zigzagCount = Math.max(0, zigzagCount - dt * 1.5); 
 
             if (!isAttacking) {
                 if (dist > MIN_DISTANCE) {
@@ -371,12 +411,9 @@
                     return; 
                 }
 
-                // 🌟 3. 조건별 패턴 발동 (무빙 카운터 추가)
                 if (zigzagCount >= 2.5 && dist <= MELEE_RANGE + 2.0) {
-                    // 유저가 근처에서 심하게 무빙을 칠 때 카운터 발동!
-                    console.log("무빙 캐치! 양 발톱 내려찍기 발동!");
                     startPattern('DOUBLE_SLAM');
-                    zigzagCount = 0; // 스택 초기화
+                    zigzagCount = 0; 
                 } 
                 else if (timeNearPlayer >= 5.0) {
                     startPattern('GRAB');
@@ -387,7 +424,6 @@
                     startPattern(rangedPatterns[Math.floor(Math.random() * rangedPatterns.length)]);
                 } 
                 else if (dist <= MELEE_RANGE && dist > MIN_DISTANCE - 1) {
-                    // 2번(DOUBLE_SLAM)은 무빙 조건으로 빠졌으므로 1번, 3번만 랜덤 발동
                     const meleePatterns = ['SLASH', 'CHARGE'];
                     startPattern(meleePatterns[Math.floor(Math.random() * meleePatterns.length)]);
                 }
@@ -396,13 +432,20 @@
 
                 if (currentDashSpeed > 0) {
                     monster.position.addScaledVector(dashDirection, currentDashSpeed * dt);
-                    
                     if (!hasHitDuringDash && player.position.distanceTo(monster.position) <= MELEE_RANGE - 2.0) {
                         playerHealth -= dashDamage;
                         uiPlayerHP.innerText = Math.floor(playerHealth);
                         flashPlayerRed();
                         hasHitDuringDash = true; 
                     }
+                }
+
+                if (isJumping) {
+                    jumpProgress += dt / jumpDuration;
+                    if (jumpProgress > 1.0) jumpProgress = 1.0;
+                    monster.position.x = THREE.MathUtils.lerp(jumpStartPos.x, jumpTargetPos.x, jumpProgress);
+                    monster.position.z = THREE.MathUtils.lerp(jumpStartPos.z, jumpTargetPos.z, jumpProgress);
+                    monster.position.y = 2.5 + Math.sin(jumpProgress * Math.PI) * jumpHeight;
                 }
 
                 if (frameTimer <= 0) {
@@ -425,6 +468,68 @@
             }
         }
 
+        // 🌟 게임 오버 및 재시작 시스템
+        function checkGameOver() {
+            if (isGameOver) return;
+
+            if (monsterHealth <= 0 || playerHealth <= 0) {
+                isGameOver = true;
+                if (monsterHealth < 0) monsterHealth = 0;
+                if (playerHealth < 0) playerHealth = 0;
+                
+                uiMonsterHP.innerText = Math.floor(monsterHealth);
+                uiPlayerHP.innerText = Math.floor(playerHealth);
+
+                // 승패에 따른 텍스트 색상 변경
+                if (monsterHealth === 0) {
+                    gameOverText.innerHTML = "승리! 몬스터를 처치했습니다.";
+                    gameOverText.style.color = "#00ffcc";
+                } else {
+                    gameOverText.innerHTML = "패배... 전투 시뮬레이션 종료";
+                    gameOverText.style.color = "#ff4444";
+                }
+
+                gameOverUI.style.display = 'flex';
+                document.exitPointerLock(); // 마우스 잠금 자동 해제
+            }
+        }
+
+        function resetGame() {
+            // 변수 초기화
+            monsterHealth = 1000;
+            playerHealth = 100;
+            uiMonsterHP.innerText = monsterHealth;
+            uiPlayerHP.innerText = playerHealth;
+            
+            isGameOver = false;
+            isDead = false;
+            isGrabbed = false;
+            isJumping = false;
+            currentDashSpeed = 0;
+            zigzagCount = 0;
+            timeNearPlayer = 0;
+            attackCooldown = 0;
+
+            // 위치 초기화
+            player.position.set(0, 1, 0);
+            monster.position.set(0, 2.5, -15);
+            yaw = 0; pitch = 0;
+            
+            // 투사체 및 장판 삭제
+            projectiles.forEach(p => scene.remove(p.mesh));
+            projectiles.length = 0;
+            puddles.forEach(p => scene.remove(p.mesh));
+            puddles.length = 0;
+
+            // 몬스터 상태 초기화
+            startPattern('IDLE');
+            uiPattern.style.color = '#ffaa00';
+
+            // UI 화면 전환
+            gameOverUI.style.display = 'none';
+            blocker.style.display = 'flex';
+        }
+
         // ==========================================
         // 5. 메인 렌더 루프
         // ==========================================
@@ -433,8 +538,15 @@
             requestAnimationFrame(animate);
             const dt = clock.getDelta();
 
-            movePlayer(dt);
-            updateProjectiles(dt); 
+            // 🌟 실시간 체력 체크
+            checkGameOver();
+
+            // 게임 오버 상태가 아닐 때만 게임 로직 실행
+            if (!isGameOver) {
+                movePlayer(dt);
+                updateProjectiles(dt); 
+                updateMonsterAI(dt);
+            }
 
             const cx = player.position.x + cameraDistance * Math.sin(yaw) * Math.cos(pitch);
             const cy = player.position.y + 2 - cameraDistance * Math.sin(pitch);
@@ -442,7 +554,6 @@
             camera.position.set(cx, cy, cz);
             camera.lookAt(player.position.x, player.position.y+1, player.position.z);
 
-            updateMonsterAI(dt);
             renderer.render(scene, camera);
         }
         animate();
