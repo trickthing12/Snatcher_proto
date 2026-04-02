@@ -2,7 +2,7 @@
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
-    <title>3D Boss Fight Prototype - Hitbox Adjusted</title>
+    <title>3D Boss Fight Prototype - Retreat Poison Cloud</title>
     <style>
         body { margin: 0; overflow: hidden; background-color: #222; }
         
@@ -57,6 +57,7 @@
     
     <div id="ui">
         현재 패턴: <span id="patternName" style="color: #ffaa00;">대기 (IDLE)</span><br>
+        <span style="font-size: 16px; color: #aaa;">누적 딜량: <span id="dmgUI">0</span> / 100 (회피)</span>
     </div>
 
     <div id="hpUI">
@@ -72,8 +73,9 @@
         <span style="color: #ff5555;">4. 잡기 (3초 이상 근접 시)</span><br>
         5. 연속 찌르기 (원거리)<br>
         6. 금화 투척 (원거리)<br>
-        7. 독 안개 (근접/원거리)<br>
-        <span style="color: #ffaa00;">8. 광역 충격파 (1.5초 이상 근접 시)</span>
+        <span style="color: #00ff44;">7. 독 투척 (원거리)</span><br>
+        8. 광역 충격파 (1.5초 이상 근접 시)<br>
+        <span style="color: #ffaaaa;">9. 맹독 후방 도약 (피해 100 누적 시)</span>
     </div>
 
     <script>
@@ -113,10 +115,13 @@
         let isGrabbed = false; 
         let isDead = false; 
         let isGameOver = false; 
+
+        let accumulatedDamage = 0;
         
         const uiMonsterHP = document.getElementById('monsterHP');
         const uiPlayerHP = document.getElementById('playerHP');
         const uiPattern = document.getElementById('patternName');
+        const uiDmg = document.getElementById('dmgUI');
         const blocker = document.getElementById('blocker');
         const gameOverUI = document.getElementById('gameOverUI');
         const gameOverText = document.getElementById('gameOverText');
@@ -171,13 +176,20 @@
                     playerAttackTimer = PLAYER_ATTACK_DURATION;
                     updatePlayerImage('player_attack.png');
 
-                    // 🌟 플레이어 타격 범위 대폭 감소 (9.0 -> 7.0)
                     if (player.position.distanceTo(monster.position) <= 7.0) { 
                         monsterHealth -= 50;
                         uiMonsterHP.innerText = monsterHealth;
-
                         monster.material.color.setHex(0xffaaaa); 
                         setTimeout(() => monster.material.color.setHex(0xffffff), 100); 
+
+                        accumulatedDamage += 50;
+                        uiDmg.innerText = accumulatedDamage;
+                        
+                        if (accumulatedDamage >= 100) {
+                            accumulatedDamage = 0; 
+                            uiDmg.innerText = accumulatedDamage;
+                            startPattern('RETREAT_CHARGE'); 
+                        }
                     }
                 }
             }
@@ -226,14 +238,19 @@
             projectiles.push({ mesh, targetPos, type, speed: 20 });
         }
 
-        function createPoisonPuddle(pos) {
-            const geo = new THREE.CircleGeometry(3, 32);
-            const mat = new THREE.MeshBasicMaterial({ color: 0x00ff00, side: THREE.DoubleSide, transparent: true, opacity: 0.5 });
+        function createPoisonPuddle(pos, radius = 3.0) {
+            const geo = new THREE.CircleGeometry(radius, 32);
+            const mat = new THREE.MeshBasicMaterial({ color: 0x00ff00, side: THREE.DoubleSide, transparent: true, opacity: 0.4 });
             const mesh = new THREE.Mesh(geo, mat);
             mesh.rotation.x = -Math.PI / 2;
             mesh.position.set(pos.x, 0.1, pos.z); 
             scene.add(mesh);
-            puddles.push({ mesh, timer: 5.0 }); 
+            puddles.push({ mesh, timer: 6.0, radius: radius }); 
+        }
+
+        // 🌟 수정됨: 지정된 위치(pos)에 거대한 독 장판 생성
+        function spawnPoisonCloud(pos) {
+            createPoisonPuddle(pos, 7.0); 
         }
 
         function updateProjectiles(dt) {
@@ -252,8 +269,9 @@
             for (let i = puddles.length - 1; i >= 0; i--) {
                 const puddle = puddles[i];
                 puddle.timer -= dt;
-                if (player.position.distanceTo(puddle.mesh.position) < 3.0) {
-                    playerHealth -= 10 * dt; 
+                
+                if (player.position.distanceTo(puddle.mesh.position) < puddle.radius) {
+                    playerHealth -= 15 * dt; 
                     uiPlayerHP.innerText = Math.floor(playerHealth);
                 }
                 if (puddle.timer <= 0) { 
@@ -278,14 +296,12 @@
         let jumpDuration = 1.0; 
         let jumpHeight = 10; 
 
-        // 🌟 몬스터 사거리 재조정 (히트박스 다이어트)
-        const MIN_DISTANCE = 4.5;  // 더 바짝 파고들 수 있게 감소
-        const MELEE_RANGE = 7.0;   // 허공에 안 맞게 감소
-        const RANGED_RANGE = 14.0; // 원거리 기준도 살짝 감소
+        const MIN_DISTANCE = 4.5;  
+        const MELEE_RANGE = 7.0;   
+        const RANGED_RANGE = 14.0; 
         const MONSTER_SPEED = 4.0; 
 
         function executeShockwave(damage, pushForce) {
-            // 🌟 충격파 사거리도 12.0 -> 9.0 (MELEE_RANGE 7.0 + 2.0)으로 감소
             if (player.position.distanceTo(monster.position) <= MELEE_RANGE + 2.0) { 
                 playerHealth -= damage;
                 uiPlayerHP.innerText = Math.floor(playerHealth);
@@ -295,6 +311,20 @@
                 pushDir.y = 0; 
                 player.position.addScaledVector(pushDir, pushForce); 
             }
+        }
+
+        function startRetreatJump(height, duration) {
+            isJumping = true;
+            jumpStartPos.copy(monster.position);
+            
+            let dirAway = new THREE.Vector3().subVectors(monster.position, player.position).normalize();
+            dirAway.y = 0;
+            
+            jumpTargetPos.copy(monster.position).addScaledVector(dirAway, 20.0); 
+            
+            jumpProgress = 0;
+            jumpDuration = duration;
+            jumpHeight = height;
         }
 
         const PATTERNS = {
@@ -314,6 +344,19 @@
                 ['jump_air.png', 0.9, () => startJump(10, 0.9)], 
                 ['jump_slam.png', 0.4, () => landAndDamage(25)], 
                 ['idle.png', 0.7]
+            ],
+            // 🌟 수정됨: 거리를 벌릴 때 현재 위치(자신의 발밑)에 거대한 독 구름을 살포합니다.
+            RETREAT_CHARGE: [
+                ['jump_ready.png', 0.2], 
+                ['jump_air.png', 0.6, () => {
+                    spawnPoisonCloud(monster.position.clone()); // 도약 직전에 있던 자리에 독 뿌리기
+                    startRetreatJump(10, 0.6);
+                }], 
+                ['jump_slam.png', 0.2, () => {
+                    isJumping = false;
+                    monster.position.y = 5.0;
+                }], 
+                ['idle.png', 0.4]
             ],
             GRAB: [
                 ['grab_try.png', 0.7, () => checkGrab()]
@@ -355,6 +398,7 @@
                 ['coin_throw.png', 0.4, () => spawnProjectile('coin')], 
                 ['idle.png', 0.8]
             ],
+            // 🌟 수정됨: 일반 POISON 패턴은 다시 독을 던지도록 복구
             POISON: [
                 ['poison_ready.png', 0.5], 
                 ['poison_throw.png', 0.4, () => spawnProjectile('poison')], 
@@ -378,8 +422,12 @@
             sequenceIndex = 0;
             frameTimer = currentSequence[0][1];
             isAttacking = true;
+            
             currentDashSpeed = 0; 
-            isJumping = false; 
+            if (isJumping) {
+                isJumping = false;
+                monster.position.y = 5.0;
+            }
 
             uiPattern.innerText = patternName;
             updateMonsterImage(currentSequence[0][0]);
@@ -419,9 +467,11 @@
             isJumping = false;
             monster.position.y = 5.0; 
             if (player.position.distanceTo(monster.position) <= MELEE_RANGE + 1.0) { 
-                playerHealth -= damage;
-                uiPlayerHP.innerText = Math.floor(playerHealth);
-                flashPlayerRed();
+                if (damage > 0) {
+                    playerHealth -= damage;
+                    uiPlayerHP.innerText = Math.floor(playerHealth);
+                    flashPlayerRed();
+                }
             }
         }
 
@@ -493,7 +543,8 @@
                         const shockPatterns = ['SHOCKWAVE', 'SHOCKWAVE_PIERCE'];
                         startPattern(shockPatterns[Math.floor(Math.random() * shockPatterns.length)]);
                     } else {
-                        const meleePatterns = ['SLASH', 'CHARGE', 'POISON'];
+                        // 🌟 근접 무작위 패턴에서 독 장판은 제외하고 베기와 급습만 남깁니다.
+                        const meleePatterns = ['SLASH', 'CHARGE'];
                         startPattern(meleePatterns[Math.floor(Math.random() * meleePatterns.length)]);
                     }
                 }
@@ -502,7 +553,6 @@
 
                 if (currentDashSpeed > 0) {
                     monster.position.addScaledVector(dashDirection, currentDashSpeed * dt);
-                    // 🌟 돌진 시 플레이어 피격 판정도 좁혔습니다. (MELEE_RANGE - 2.0 -> 5.0 반경)
                     if (!hasHitDuringDash && player.position.distanceTo(monster.position) <= MELEE_RANGE - 2.0) {
                         playerHealth -= dashDamage;
                         uiPlayerHP.innerText = Math.floor(playerHealth);
@@ -516,7 +566,7 @@
                     if (jumpProgress > 1.0) jumpProgress = 1.0;
                     monster.position.x = THREE.MathUtils.lerp(jumpStartPos.x, jumpTargetPos.x, jumpProgress);
                     monster.position.z = THREE.MathUtils.lerp(jumpStartPos.z, jumpTargetPos.z, jumpProgress);
-                    monster.position.y = 5.0 + Math.sin(jumpProgress * Math.PI) * jumpHeight;
+                    monster.position.y = 5.0 + Math.sin(jumpProgress * Math.PI) * jumpHeight; 
                 }
 
                 if (frameTimer <= 0) {
@@ -577,6 +627,8 @@
             zigzagCount = 0;
             timeNearPlayer = 0;
             attackCooldown = 0;
+            accumulatedDamage = 0; 
+            uiDmg.innerText = 0;
 
             isAttacking = false;
             currentSequence = PATTERNS.IDLE;
