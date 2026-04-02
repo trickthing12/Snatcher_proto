@@ -2,40 +2,69 @@
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
-    <title>3D Boss Fight Prototype - Image Folder Applied</title>
+    <title>3D Boss Fight Prototype - UI Update & Alpha Fix</title>
     <style>
         body { margin: 0; overflow: hidden; background-color: #222; }
+        
+        /* 좌측 상단: 현재 패턴만 표시 */
         #ui {
             position: absolute; top: 20px; left: 20px;
-            color: white; font-family: sans-serif; font-size: 18px;
-            text-shadow: 1px 1px 2px black; pointer-events: none; z-index: 10;
+            color: white; font-family: sans-serif; font-size: 20px; font-weight: bold;
+            text-shadow: 2px 2px 4px black; pointer-events: none; z-index: 10;
         }
+
+        /* 상단 중앙: 체력바 표시 */
         #hpUI {
-            position: absolute; bottom: 20px; left: 20px;
-            color: white; font-family: sans-serif; font-size: 20px;
+            position: absolute; top: 20px; left: 50%;
+            transform: translateX(-50%); /* 정확히 가운데 정렬하는 CSS 마법 */
+            color: white; font-family: sans-serif; font-size: 22px; font-weight: bold;
+            text-shadow: 2px 2px 4px black; pointer-events: none; z-index: 10;
+            text-align: center;
+        }
+
+        /* 우측 상단: 패턴 가이드 표시 */
+        #guideUI {
+            position: absolute; top: 20px; right: 20px;
+            background-color: rgba(0, 0, 0, 0.6); /* 반투명 검은색 배경 */
+            padding: 15px; border-radius: 8px;
+            color: #ddd; font-family: sans-serif; font-size: 14px; line-height: 1.6;
             text-shadow: 1px 1px 2px black; pointer-events: none; z-index: 10;
         }
+
+        /* 시작 화면 */
         #blocker {
             position: absolute; width: 100%; height: 100%;
-            background-color: rgba(0,0,0,0.7); display: flex;
-            justify-content: center; align-items: center;
+            background-color: rgba(0,0,0,0.8); display: flex;
+            justify-content: center; align-items: center; text-align: center;
             color: white; font-size: 24px; cursor: pointer; z-index: 20;
         }
     </style>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 </head>
 <body>
-    <div id="blocker">화면을 클릭하여 전투 시작<br><span style="font-size:16px;">(좌클릭: 공격 / WASD: 이동 / 마우스: 회전)</span></div>
+    <div id="blocker">
+        화면을 클릭하여 전투 시작<br>
+        <span style="font-size:16px; color:#aaa;">(좌클릭: 공격 / WASD: 이동 / 마우스: 화면 회전 / ESC: 마우스 해제)</span>
+    </div>
     
     <div id="ui">
-        현재 패턴: <span id="patternName" style="color: #ffaa00;">대기 (IDLE)</span><br>
-        출력 이미지: <span id="imgName">idle.png</span><br>
-        근접 누적 시간: <span id="timeUI">0.0</span>초
+        현재 패턴: <span id="patternName" style="color: #ffaa00;">대기 (IDLE)</span>
     </div>
 
     <div id="hpUI">
-        몬스터 HP: <span id="monsterHP" style="color: red;">1000</span><br>
-        플레이어 HP: <span id="playerHP" style="color: #00aaff;">100</span>
+        <span style="color: red;">몬스터 HP: <span id="monsterHP">1000</span></span> &nbsp; | &nbsp; 
+        <span style="color: #00aaff;">플레이어 HP: <span id="playerHP">100</span></span>
+    </div>
+
+    <div id="guideUI">
+        <strong style="color: #ffaa00; font-size: 16px;">[ 몬스터 패턴 가이드 ]</strong><br>
+        1. 한 발톱 베기 (근접 상시)<br>
+        2. 양 발톱 내려찍기 (근접 상시)<br>
+        3. 돌진 (근접 상시)<br>
+        <span style="color: #ff5555;">4. 잡기 (5초 이상 근접 시)</span><br>
+        5. 찌르기 (원거리 시)<br>
+        6. 금화 투척 (원거리 시)<br>
+        7. 독 안개 (원거리 시)
     </div>
 
     <script>
@@ -55,13 +84,13 @@
         player.position.y = 1;
         scene.add(player);
 
-        // 🌟 텍스처 로더 설정 및 초기 이미지 경로 (image/ 폴더 지정)
+        // 🌟 텍스처 로더 설정 및 alphaTest 추가 (투명 배경 문제 해결!)
         const textureLoader = new THREE.TextureLoader();
         const monsterMat = new THREE.MeshBasicMaterial({ 
             map: textureLoader.load('image/idle.png'), 
             side: THREE.DoubleSide,
             transparent: true,
-            alphaTest: 0.5 // 투명도가 50% 이하인 부분은 완전히 투명하게 잘라냅니다.
+            alphaTest: 0.5 // 투명도가 절반 이하인 픽셀을 강제로 깎아내서 하얀 테두리를 없앱니다.
         });
         
         const monster = new THREE.Mesh(new THREE.PlaneGeometry(5, 5), monsterMat);
@@ -239,8 +268,6 @@
         const MONSTER_SPEED = 4.0; 
 
         const uiPattern = document.getElementById('patternName');
-        const uiImg = document.getElementById('imgName');
-        const uiTime = document.getElementById('timeUI');
 
         function startPattern(patternName) {
             currentSequence = PATTERNS[patternName];
@@ -252,9 +279,8 @@
             updateMonsterImage(currentSequence[0][0]);
         }
 
-        // 🌟 모든 패턴 이미지를 로드할 때 앞에 'image/' 경로를 자동으로 붙여줍니다.
+        // 이미지 경로에 'image/'를 붙여 텍스처 업데이트
         function updateMonsterImage(imgName) {
-            uiImg.innerText = imgName;
             monster.material.map = textureLoader.load('image/' + imgName);
             monster.material.needsUpdate = true;
         }
@@ -311,7 +337,6 @@
 
                 if (dist <= MELEE_RANGE) timeNearPlayer += dt;
                 else timeNearPlayer = 0;
-                uiTime.innerText = timeNearPlayer.toFixed(1);
 
                 if (attackCooldown > 0) {
                     attackCooldown -= dt;
