@@ -2,7 +2,7 @@
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
-    <title>3D Boss Fight Prototype - Advanced Combo AI</title>
+    <title>3D Boss Fight Prototype - Grab & Shockwave Fix</title>
     <style>
         body { margin: 0; overflow: hidden; background-color: #222; }
         
@@ -56,7 +56,8 @@
     </div>
     
     <div id="ui">
-        현재 패턴: <span id="patternName" style="color: #ffaa00;">대기 (IDLE)</span>
+        현재 패턴: <span id="patternName" style="color: #ffaa00;">대기 (IDLE)</span><br>
+        <span style="font-size: 16px; color: #aaa;">근접 누적 시간: <span id="timeUI">0.0</span>초</span>
     </div>
 
     <div id="hpUI">
@@ -69,11 +70,11 @@
         1. 한 발톱 베기 (근접)<br>
         <span style="color: #bb88ff;">2. 양 발톱 내려찍기 (무빙 카운터)</span><br>
         <span style="color: #00ffcc;">3. 도약 급습 (근접)</span><br>
-        <span style="color: #ff5555;">4. 잡기 (5초 이상 근접 시)</span><br>
+        <span style="color: #ff5555;">4. 잡기 (3초 이상 근접 시 발동)</span><br>
         5. 연속 찌르기 (원거리 시)<br>
         6. 금화 투척 (원거리 시)<br>
-        <span style="color: #00ff44;">7. 독 안개 (근접/원거리 공통)</span><br>
-        <span style="color: #ffaa00;">8. 충격파 밀쳐내기 -> 3연속 찌르기 (근접 누적 시 발동)</span>
+        <span style="color: #00ff44;">7. 독 안개 (근접/원거리)</span><br>
+        <span style="color: #ffaa00;">8. 충격파 밀쳐내기 (근접 전투 중 랜덤)</span>
     </div>
 
     <script>
@@ -116,6 +117,7 @@
         const uiMonsterHP = document.getElementById('monsterHP');
         const uiPlayerHP = document.getElementById('playerHP');
         const uiPattern = document.getElementById('patternName');
+        const uiTime = document.getElementById('timeUI');
         const blocker = document.getElementById('blocker');
         const gameOverUI = document.getElementById('gameOverUI');
         const gameOverText = document.getElementById('gameOverText');
@@ -162,7 +164,13 @@
         window.addEventListener('keyup', e => keys[e.code] = false);
 
         window.addEventListener('mousedown', (e) => {
-            if (document.pointerLockElement && e.button === 0 && !isGrabbed && !isGameOver) {
+            if (document.pointerLockElement && e.button === 0 && !isGameOver) {
+                // 🌟 잡혀있으면 무조건 공격 리턴(불가) 처리
+                if (isGrabbed) {
+                    console.log("잡힌 상태라 공격할 수 없습니다!");
+                    return; 
+                }
+
                 if (!playerIsAttacking) {
                     playerIsAttacking = true;
                     playerAttackTimer = PLAYER_ATTACK_DURATION;
@@ -179,7 +187,9 @@
         });
 
         function movePlayer(dt) {
+            // 🌟 잡혀있으면 무조건 이동 리턴(불가) 처리
             if (isGrabbed) return; 
+
             const move = new THREE.Vector3();
             if (keys['KeyW']) move.z -= 1; 
             if (keys['KeyS']) move.z += 1; 
@@ -273,14 +283,12 @@
         let jumpDuration = 1.0; 
         let jumpHeight = 10; 
 
-        // 🌟 충격파 함수: 플레이어에게 데미지를 주고 뒤로 밀쳐냅니다.
         function executeShockwave(damage, pushForce) {
-            if (player.position.distanceTo(monster.position) <= MELEE_RANGE + 3.0) { // 충격파는 범위가 조금 더 넓습니다.
+            if (player.position.distanceTo(monster.position) <= MELEE_RANGE + 3.0) { 
                 playerHealth -= damage;
                 uiPlayerHP.innerText = Math.floor(playerHealth);
                 flashPlayerRed();
 
-                // 밀쳐내기 (Knockback)
                 const pushDir = new THREE.Vector3().subVectors(player.position, monster.position).normalize();
                 pushDir.y = 0; 
                 player.position.addScaledVector(pushDir, pushForce);
@@ -320,10 +328,9 @@
                 ['pierce_dash.png', 0.5, () => startDash(35, 25)], 
                 ['idle.png', 1.0]
             ],
-            // 🌟 신규: 충격파 후 3연속 찌르기 연계 콤보
             SHOCKWAVE_PIERCE: [
                 ['double_windup.png', 0.7], 
-                ['double_attack.png', 0.4, () => executeShockwave(15, 10.0)], // 10.0의 힘으로 밀쳐냄!
+                ['double_attack.png', 0.4, () => executeShockwave(15, 10.0)], 
                 ['pierce_ready.png', 0.5], 
                 ['pierce_jump.png', 0.2], 
                 ['pierce_dash.png', 0.5, () => startDash(35, 25)], 
@@ -422,7 +429,7 @@
 
         function checkGrab() {
             if (player.position.distanceTo(monster.position) <= MELEE_RANGE) {
-                isGrabbed = true; 
+                isGrabbed = true; // 🌟 잡기 성공! 플레이어 완전 무력화 시작
                 const successSequence = [
                     ['grab_success.png', 0.8],
                     ['grab_bite.png', 0.6, () => {
@@ -430,7 +437,7 @@
                         uiPlayerHP.innerText = Math.floor(playerHealth);
                         flashPlayerRed();
                     }],
-                    ['idle.png', 1.0, () => { isGrabbed = false; }] 
+                    ['idle.png', 1.0, () => { isGrabbed = false; }] // 🌟 패턴이 완전히 끝나야 풀려남
                 ];
                 currentSequence = currentSequence.concat(successSequence);
             } else {
@@ -461,32 +468,36 @@
                 if (dist <= MELEE_RANGE) timeNearPlayer += dt;
                 else timeNearPlayer = 0;
 
+                // UI에 근접 시간 표시 (디버깅용)
+                uiTime.innerText = timeNearPlayer.toFixed(1);
+
                 if (attackCooldown > 0) {
                     attackCooldown -= dt;
                     return; 
                 }
 
+                // 🌟 AI 분기 처리 (조건이 겹치지 않게 우선순위 명확히 설정)
                 if (zigzagCount >= 2.5 && dist <= MELEE_RANGE + 2.0) {
                     startPattern('DOUBLE_SLAM');
                     zigzagCount = 0; 
                 } 
-                else if (timeNearPlayer >= 5.0) {
+                else if (timeNearPlayer >= 3.0) {
+                    // 🌟 3초 이상 찰싹 붙어있으면 얄짤없이 잡기 발동
                     startPattern('GRAB');
                     timeNearPlayer = 0;
                 } 
-                // 🌟 신규: 3초 이상 근접 시 높은 확률로 충격파 콤보 발동!
-                else if (timeNearPlayer >= 3.0 && Math.random() < 0.6) {
-                    startPattern('SHOCKWAVE_PIERCE');
-                    timeNearPlayer = 0;
-                }
                 else if (dist >= RANGED_RANGE) {
                     const rangedPatterns = ['PIERCE', 'COIN', 'POISON'];
                     startPattern(rangedPatterns[Math.floor(Math.random() * rangedPatterns.length)]);
                 } 
                 else if (dist <= MELEE_RANGE && dist > MIN_DISTANCE - 1) {
-                    // 🌟 POISON을 근접 패턴(meleePatterns) 배열에도 추가했습니다!
-                    const meleePatterns = ['SLASH', 'CHARGE', 'POISON'];
-                    startPattern(meleePatterns[Math.floor(Math.random() * meleePatterns.length)]);
+                    // 🌟 근접 전투 중 20% 확률로 충격파 발동! (시간 조건에서 완전히 독립시킴)
+                    if (Math.random() < 0.2) {
+                        startPattern('SHOCKWAVE_PIERCE');
+                    } else {
+                        const meleePatterns = ['SLASH', 'CHARGE', 'POISON'];
+                        startPattern(meleePatterns[Math.floor(Math.random() * meleePatterns.length)]);
+                    }
                 }
             } else {
                 frameTimer -= dt;
@@ -518,8 +529,6 @@
                         currentSequence = PATTERNS.IDLE;
                         uiPattern.innerText = '대기 (IDLE)';
                         updateMonsterImage('idle.png');
-                        
-                        // 🌟 공격 쿨타임을 1.5초에서 0.8초로 대폭 단축하여 템포 상승!
                         attackCooldown = 0.8; 
                     } else {
                         const currentFrame = currentSequence[sequenceIndex];
