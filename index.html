@@ -2,7 +2,7 @@
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
-    <title>3D Boss Fight Prototype - Size & Speed Adjusted</title>
+    <title>3D Boss Fight Prototype - Hitbox Adjusted</title>
     <style>
         body { margin: 0; overflow: hidden; background-color: #222; }
         
@@ -104,7 +104,6 @@
             side: THREE.DoubleSide, transparent: true, alphaTest: 0.5 
         });
         
-        // 🌟 몬스터 크기 2배 상향 (5x5 -> 10x10) 및 Y축 5.0으로 조정
         const monster = new THREE.Mesh(new THREE.PlaneGeometry(10, 10), monsterMat);
         monster.position.set(0, 5.0, -20);
         scene.add(monster);
@@ -126,7 +125,7 @@
         // 2. 입력 제어 (카메라, 이동, 플레이어 공격)
         // ==========================================
         let yaw = 0, pitch = 0;
-        const cameraDistance = 10; // 카메라를 살짝 뒤로 뺐습니다.
+        const cameraDistance = 10; 
         const keys = {};
 
         let playerIsAttacking = false;
@@ -172,8 +171,8 @@
                     playerAttackTimer = PLAYER_ATTACK_DURATION;
                     updatePlayerImage('player_attack.png');
 
-                    // 🌟 몬스터 크기가 커졌으므로 플레이어 타격 사거리도 6.0에서 9.0으로 증가
-                    if (player.position.distanceTo(monster.position) <= 9.0) { 
+                    // 🌟 플레이어 타격 범위 대폭 감소 (9.0 -> 7.0)
+                    if (player.position.distanceTo(monster.position) <= 7.0) { 
                         monsterHealth -= 50;
                         uiMonsterHP.innerText = monsterHealth;
 
@@ -265,7 +264,7 @@
         }
 
         // ==========================================
-        // 4. 몬스터 패턴 구조 및 AI 변수 (속도 0.75배로 완화)
+        // 4. 몬스터 패턴 구조 및 AI 변수
         // ==========================================
         let dashDirection = new THREE.Vector3();
         let currentDashSpeed = 0;
@@ -279,14 +278,15 @@
         let jumpDuration = 1.0; 
         let jumpHeight = 10; 
 
-        // 🌟 몬스터 크기 증가에 따라 거리 판정 기준들 상향
-        const MIN_DISTANCE = 6.0;  // 3.5 -> 6.0
-        const MELEE_RANGE = 9.0;   // 6.0 -> 9.0
-        const RANGED_RANGE = 16.0; // 12.0 -> 16.0
+        // 🌟 몬스터 사거리 재조정 (히트박스 다이어트)
+        const MIN_DISTANCE = 4.5;  // 더 바짝 파고들 수 있게 감소
+        const MELEE_RANGE = 7.0;   // 허공에 안 맞게 감소
+        const RANGED_RANGE = 14.0; // 원거리 기준도 살짝 감소
         const MONSTER_SPEED = 4.0; 
 
         function executeShockwave(damage, pushForce) {
-            if (player.position.distanceTo(monster.position) <= MELEE_RANGE + 3.0) { 
+            // 🌟 충격파 사거리도 12.0 -> 9.0 (MELEE_RANGE 7.0 + 2.0)으로 감소
+            if (player.position.distanceTo(monster.position) <= MELEE_RANGE + 2.0) { 
                 playerHealth -= damage;
                 uiPlayerHP.innerText = Math.floor(playerHealth);
                 flashPlayerRed();
@@ -297,7 +297,6 @@
             }
         }
 
-        // 🌟 패턴 속도를 약 0.75배 느리게 조정 (각 프레임 지속 시간을 1.3배 길게)
         const PATTERNS = {
             IDLE: [ ['idle.png', 1000] ],
             SLASH: [
@@ -312,7 +311,7 @@
             ],
             CHARGE: [
                 ['jump_ready.png', 0.4], 
-                ['jump_air.png', 0.9, () => startJump(10, 0.9)], // 점프 시간도 0.9초로 증가
+                ['jump_air.png', 0.9, () => startJump(10, 0.9)], 
                 ['jump_slam.png', 0.4, () => landAndDamage(25)], 
                 ['idle.png', 0.7]
             ],
@@ -418,7 +417,7 @@
 
         function landAndDamage(damage) {
             isJumping = false;
-            monster.position.y = 5.0; // 🌟 착지 후 위치를 5.0으로 변경
+            monster.position.y = 5.0; 
             if (player.position.distanceTo(monster.position) <= MELEE_RANGE + 1.0) { 
                 playerHealth -= damage;
                 uiPlayerHP.innerText = Math.floor(playerHealth);
@@ -435,7 +434,7 @@
             if (player.position.distanceTo(monster.position) <= MELEE_RANGE) {
                 isGrabbed = true; 
                 const successSequence = [
-                    ['grab_success.png', 1.0], // 시간 살짝 증가
+                    ['grab_success.png', 1.0],
                     ['grab_bite.png', 0.8, () => {
                         playerHealth -= 40;
                         uiPlayerHP.innerText = Math.floor(playerHealth);
@@ -503,6 +502,7 @@
 
                 if (currentDashSpeed > 0) {
                     monster.position.addScaledVector(dashDirection, currentDashSpeed * dt);
+                    // 🌟 돌진 시 플레이어 피격 판정도 좁혔습니다. (MELEE_RANGE - 2.0 -> 5.0 반경)
                     if (!hasHitDuringDash && player.position.distanceTo(monster.position) <= MELEE_RANGE - 2.0) {
                         playerHealth -= dashDamage;
                         uiPlayerHP.innerText = Math.floor(playerHealth);
@@ -516,7 +516,7 @@
                     if (jumpProgress > 1.0) jumpProgress = 1.0;
                     monster.position.x = THREE.MathUtils.lerp(jumpStartPos.x, jumpTargetPos.x, jumpProgress);
                     monster.position.z = THREE.MathUtils.lerp(jumpStartPos.z, jumpTargetPos.z, jumpProgress);
-                    monster.position.y = 5.0 + Math.sin(jumpProgress * Math.PI) * jumpHeight; // 🌟 Y축 5.0 기준
+                    monster.position.y = 5.0 + Math.sin(jumpProgress * Math.PI) * jumpHeight;
                 }
 
                 if (frameTimer <= 0) {
@@ -528,7 +528,7 @@
                         currentSequence = PATTERNS.IDLE;
                         uiPattern.innerText = '대기 (IDLE)';
                         updateMonsterImage('idle.png');
-                        attackCooldown = 0.8; // 🌟 쿨타임도 숨 쉴 수 있게 0.8초로 완화
+                        attackCooldown = 0.8; 
                     } else {
                         const currentFrame = currentSequence[sequenceIndex];
                         updateMonsterImage(currentFrame[0]);
@@ -584,7 +584,7 @@
             frameTimer = 0;
 
             player.position.set(0, 1.5, 0); 
-            monster.position.set(0, 5.0, -20); // 🌟 Y축 5.0 복원
+            monster.position.set(0, 5.0, -20); 
             yaw = 0; pitch = 0;
             
             projectiles.forEach(p => scene.remove(p.mesh));
