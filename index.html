@@ -2,7 +2,7 @@
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
-    <title>3D Boss Fight Prototype - Grab & Shockwave Fix</title>
+    <title>3D Boss Fight Prototype - High Tempo & Spacing</title>
     <style>
         body { margin: 0; overflow: hidden; background-color: #222; }
         
@@ -57,7 +57,6 @@
     
     <div id="ui">
         현재 패턴: <span id="patternName" style="color: #ffaa00;">대기 (IDLE)</span><br>
-        <span style="font-size: 16px; color: #aaa;">근접 누적 시간: <span id="timeUI">0.0</span>초</span>
     </div>
 
     <div id="hpUI">
@@ -67,14 +66,14 @@
 
     <div id="guideUI">
         <strong style="color: #ffaa00; font-size: 16px;">[ 몬스터 패턴 가이드 ]</strong><br>
-        1. 한 발톱 베기 (근접)<br>
+        1. 빠른 베기 (근접)<br>
         <span style="color: #bb88ff;">2. 양 발톱 내려찍기 (무빙 카운터)</span><br>
         <span style="color: #00ffcc;">3. 도약 급습 (근접)</span><br>
-        <span style="color: #ff5555;">4. 잡기 (3초 이상 근접 시 발동)</span><br>
-        5. 연속 찌르기 (원거리 시)<br>
-        6. 금화 투척 (원거리 시)<br>
-        <span style="color: #00ff44;">7. 독 안개 (근접/원거리)</span><br>
-        <span style="color: #ffaa00;">8. 충격파 밀쳐내기 (근접 전투 중 랜덤)</span>
+        <span style="color: #ff5555;">4. 잡기 (3초 이상 근접 시)</span><br>
+        5. 연속 찌르기 (원거리)<br>
+        6. 금화 투척 (원거리)<br>
+        7. 독 안개 (근접/원거리)<br>
+        <span style="color: #ffaa00;">8. 광역 충격파 (1.5초 이상 근접 시 거리를 벌림)</span>
     </div>
 
     <script>
@@ -117,7 +116,6 @@
         const uiMonsterHP = document.getElementById('monsterHP');
         const uiPlayerHP = document.getElementById('playerHP');
         const uiPattern = document.getElementById('patternName');
-        const uiTime = document.getElementById('timeUI');
         const blocker = document.getElementById('blocker');
         const gameOverUI = document.getElementById('gameOverUI');
         const gameOverText = document.getElementById('gameOverText');
@@ -165,11 +163,7 @@
 
         window.addEventListener('mousedown', (e) => {
             if (document.pointerLockElement && e.button === 0 && !isGameOver) {
-                // 🌟 잡혀있으면 무조건 공격 리턴(불가) 처리
-                if (isGrabbed) {
-                    console.log("잡힌 상태라 공격할 수 없습니다!");
-                    return; 
-                }
+                if (isGrabbed) return; 
 
                 if (!playerIsAttacking) {
                     playerIsAttacking = true;
@@ -179,6 +173,7 @@
                     if (player.position.distanceTo(monster.position) <= 6.0) { 
                         monsterHealth -= 50;
                         uiMonsterHP.innerText = monsterHealth;
+
                         monster.material.color.setHex(0xffaaaa); 
                         setTimeout(() => monster.material.color.setHex(0xffffff), 100); 
                     }
@@ -187,9 +182,7 @@
         });
 
         function movePlayer(dt) {
-            // 🌟 잡혀있으면 무조건 이동 리턴(불가) 처리
             if (isGrabbed) return; 
-
             const move = new THREE.Vector3();
             if (keys['KeyW']) move.z -= 1; 
             if (keys['KeyS']) move.z += 1; 
@@ -269,7 +262,7 @@
         }
 
         // ==========================================
-        // 4. 몬스터 패턴 구조 및 AI 변수
+        // 4. 몬스터 패턴 구조 및 AI 변수 (공격 속도 대폭 상향!)
         // ==========================================
         let dashDirection = new THREE.Vector3();
         let currentDashSpeed = 0;
@@ -291,67 +284,67 @@
 
                 const pushDir = new THREE.Vector3().subVectors(player.position, monster.position).normalize();
                 pushDir.y = 0; 
-                player.position.addScaledVector(pushDir, pushForce);
+                player.position.addScaledVector(pushDir, pushForce); // 🌟 강력한 넉백!
             }
         }
 
         const PATTERNS = {
             IDLE: [ ['idle.png', 1000] ],
             SLASH: [
-                ['slash_windup.png', 0.6], 
-                ['slash_attack.png', 0.3, () => takeDamage(10)], 
-                ['idle.png', 0.8]
+                ['slash_windup.png', 0.3], // 선딜 0.6 -> 0.3
+                ['slash_attack.png', 0.2, () => takeDamage(10)], // 타격 0.3 -> 0.2
+                ['idle.png', 0.4] // 후딜 0.8 -> 0.4
             ],
             DOUBLE_SLAM: [
-                ['double_windup.png', 0.8], 
-                ['double_attack.png', 0.4, () => startDash(12, 20)], 
-                ['idle.png', 1.0]
+                ['double_windup.png', 0.4], 
+                ['double_attack.png', 0.3, () => startDash(15, 20)], // 속도 12->15 상향
+                ['idle.png', 0.5] 
             ],
             CHARGE: [
-                ['jump_ready.png', 0.5], 
-                ['jump_air.png', 1.0, () => startJump(10, 1.0)], 
-                ['jump_slam.png', 0.5, () => landAndDamage(25)], 
-                ['idle.png', 0.8]
+                ['jump_ready.png', 0.3], // 점프 선딜 0.5 -> 0.3
+                ['jump_air.png', 0.7, () => startJump(10, 0.7)], // 체공 시간 1.0 -> 0.7로 단축 (빠르게 찍음)
+                ['jump_slam.png', 0.3, () => landAndDamage(25)], 
+                ['idle.png', 0.5]
             ],
             GRAB: [
-                ['grab_try.png', 0.7, () => checkGrab()]
+                ['grab_try.png', 0.5, () => checkGrab()] // 0.7 -> 0.5
+            ],
+            // 🌟 신규: 거리를 벌리는 용도의 단발성 충격파
+            SHOCKWAVE: [
+                ['double_windup.png', 0.4], 
+                ['double_attack.png', 0.3, () => executeShockwave(10, 15.0)], // 15.0의 힘으로 아주 멀리 밀어냄!
+                ['idle.png', 0.5]
             ],
             PIERCE: [
-                ['jump_ready.png', 0.5], 
-                ['pierce_jump.png', 0.2], 
-                ['pierce_dash.png', 0.5, () => startDash(35, 25)], 
                 ['jump_ready.png', 0.3], 
-                ['pierce_jump.png', 0.2], 
-                ['pierce_dash.png', 0.5, () => startDash(35, 25)], 
-                ['jump_ready.png', 0.3], 
-                ['pierce_jump.png', 0.2], 
-                ['pierce_dash.png', 0.5, () => startDash(35, 25)], 
-                ['idle.png', 1.0]
+                ['pierce_jump.png', 0.1], 
+                ['pierce_dash.png', 0.3, () => startDash(40, 25)], 
+                ['jump_ready.png', 0.2], 
+                ['pierce_jump.png', 0.1], 
+                ['pierce_dash.png', 0.3, () => startDash(40, 25)], 
+                ['jump_ready.png', 0.2], 
+                ['pierce_jump.png', 0.1], 
+                ['pierce_dash.png', 0.3, () => startDash(40, 25)], 
+                ['idle.png', 0.6]
             ],
             SHOCKWAVE_PIERCE: [
-                ['double_windup.png', 0.7], 
-                ['double_attack.png', 0.4, () => executeShockwave(15, 10.0)], 
-                ['pierce_ready.png', 0.5], 
-                ['pierce_jump.png', 0.2], 
-                ['pierce_dash.png', 0.5, () => startDash(35, 25)], 
+                ['double_windup.png', 0.4], 
+                ['double_attack.png', 0.3, () => executeShockwave(15, 12.0)], 
                 ['pierce_ready.png', 0.3], 
-                ['pierce_jump.png', 0.2], 
-                ['pierce_dash.png', 0.5, () => startDash(35, 25)], 
-                ['pierce_ready.png', 0.3], 
-                ['pierce_jump.png', 0.2], 
-                ['pierce_dash.png', 0.5, () => startDash(35, 25)], 
-                ['idle.png', 1.0]
-            ],
-            COIN: [
-                ['coin_ready.png', 0.5], 
-                ['coin_hold.png', 0.3], 
-                ['coin_throw.png', 0.4, () => spawnProjectile('coin')], 
+                ['pierce_jump.png', 0.1], 
+                ['pierce_dash.png', 0.3, () => startDash(40, 25)], 
                 ['idle.png', 0.8]
             ],
+            COIN: [
+                ['coin_ready.png', 0.4], 
+                ['coin_hold.png', 0.2], 
+                ['coin_throw.png', 0.3, () => spawnProjectile('coin')], 
+                ['idle.png', 0.6]
+            ],
             POISON: [
-                ['poison_ready.png', 0.6], 
-                ['poison_throw.png', 0.4, () => spawnProjectile('poison')], 
-                ['idle.png', 1.0]
+                ['poison_ready.png', 0.4], 
+                ['poison_throw.png', 0.3, () => spawnProjectile('poison')], 
+                ['idle.png', 0.6]
             ]
         };
 
@@ -378,6 +371,7 @@
             isAttacking = true;
             currentDashSpeed = 0; 
             isJumping = false; 
+
             uiPattern.innerText = patternName;
             updateMonsterImage(currentSequence[0][0]);
         }
@@ -429,7 +423,7 @@
 
         function checkGrab() {
             if (player.position.distanceTo(monster.position) <= MELEE_RANGE) {
-                isGrabbed = true; // 🌟 잡기 성공! 플레이어 완전 무력화 시작
+                isGrabbed = true; 
                 const successSequence = [
                     ['grab_success.png', 0.8],
                     ['grab_bite.png', 0.6, () => {
@@ -437,7 +431,7 @@
                         uiPlayerHP.innerText = Math.floor(playerHealth);
                         flashPlayerRed();
                     }],
-                    ['idle.png', 1.0, () => { isGrabbed = false; }] // 🌟 패턴이 완전히 끝나야 풀려남
+                    ['idle.png', 1.0, () => { isGrabbed = false; }] 
                 ];
                 currentSequence = currentSequence.concat(successSequence);
             } else {
@@ -468,21 +462,16 @@
                 if (dist <= MELEE_RANGE) timeNearPlayer += dt;
                 else timeNearPlayer = 0;
 
-                // UI에 근접 시간 표시 (디버깅용)
-                uiTime.innerText = timeNearPlayer.toFixed(1);
-
                 if (attackCooldown > 0) {
                     attackCooldown -= dt;
                     return; 
                 }
 
-                // 🌟 AI 분기 처리 (조건이 겹치지 않게 우선순위 명확히 설정)
-                if (zigzagCount >= 2.5 && dist <= MELEE_RANGE + 2.0) {
+                if (zigzagCount >= 2.0 && dist <= MELEE_RANGE + 2.0) { // 🌟 무빙 카운터 민감도 상향
                     startPattern('DOUBLE_SLAM');
                     zigzagCount = 0; 
                 } 
                 else if (timeNearPlayer >= 3.0) {
-                    // 🌟 3초 이상 찰싹 붙어있으면 얄짤없이 잡기 발동
                     startPattern('GRAB');
                     timeNearPlayer = 0;
                 } 
@@ -490,11 +479,13 @@
                     const rangedPatterns = ['PIERCE', 'COIN', 'POISON'];
                     startPattern(rangedPatterns[Math.floor(Math.random() * rangedPatterns.length)]);
                 } 
-                else if (dist <= MELEE_RANGE && dist > MIN_DISTANCE - 1) {
-                    // 🌟 근접 전투 중 20% 확률로 충격파 발동! (시간 조건에서 완전히 독립시킴)
-                    if (Math.random() < 0.2) {
-                        startPattern('SHOCKWAVE_PIERCE');
+                else if (dist <= MELEE_RANGE) {
+                    // 🌟 1.5초 이상 근접 시 높은 확률로 충격파를 사용해 거리를 강제로 벌립니다.
+                    if (timeNearPlayer >= 1.5 && Math.random() < 0.6) {
+                        const shockPatterns = ['SHOCKWAVE', 'SHOCKWAVE_PIERCE'];
+                        startPattern(shockPatterns[Math.floor(Math.random() * shockPatterns.length)]);
                     } else {
+                        // 기본 근접 패턴들
                         const meleePatterns = ['SLASH', 'CHARGE', 'POISON'];
                         startPattern(meleePatterns[Math.floor(Math.random() * meleePatterns.length)]);
                     }
@@ -529,7 +520,7 @@
                         currentSequence = PATTERNS.IDLE;
                         uiPattern.innerText = '대기 (IDLE)';
                         updateMonsterImage('idle.png');
-                        attackCooldown = 0.8; 
+                        attackCooldown = 0.5; // 🌟 쿨타임을 0.5초로 줄여 쉴 새 없이 몰아치게 만듭니다.
                     } else {
                         const currentFrame = currentSequence[sequenceIndex];
                         updateMonsterImage(currentFrame[0]);
