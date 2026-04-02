@@ -2,7 +2,7 @@
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
-    <title>3D Boss Fight Prototype - Pause Update</title>
+    <title>3D Boss Fight Prototype - Player Animation</title>
     <style>
         body { margin: 0; overflow: hidden; background-color: #222; }
         
@@ -88,22 +88,31 @@
         scene.add(new THREE.AmbientLight(0xffffff, 0.8));
         scene.add(new THREE.GridHelper(100, 100, 0x555555, 0x333333));
 
-        const player = new THREE.Mesh(new THREE.BoxGeometry(1, 2, 1), new THREE.MeshBasicMaterial({color: 0x00aaff, wireframe: true}));
-        player.position.y = 1;
+        const textureLoader = new THREE.TextureLoader();
+
+        // 🌟 플레이어 객체를 BoxGeometry에서 몬스터와 같은 PlaneGeometry(빌보드)로 변경
+        const playerMat = new THREE.MeshBasicMaterial({ 
+            map: textureLoader.load('image/player_idle.png'), 
+            side: THREE.DoubleSide,
+            transparent: true,
+            alphaTest: 0.5 
+        });
+        const player = new THREE.Mesh(new THREE.PlaneGeometry(3, 3), playerMat);
+        player.position.set(0, 1.5, 0); // 크기에 맞춰 바닥 위로 띄움
         scene.add(player);
 
-        const textureLoader = new THREE.TextureLoader();
+        // 몬스터 객체
         const monsterMat = new THREE.MeshBasicMaterial({ 
             map: textureLoader.load('image/idle.png'), 
             side: THREE.DoubleSide,
             transparent: true,
             alphaTest: 0.5 
         });
-        
         const monster = new THREE.Mesh(new THREE.PlaneGeometry(5, 5), monsterMat);
         monster.position.set(0, 2.5, -15);
         scene.add(monster);
 
+        // 🌟 전투 시스템 및 게임 상태 변수
         let monsterHealth = 1000;
         let playerHealth = 100;
         let isGrabbed = false; 
@@ -123,6 +132,16 @@
         let yaw = 0, pitch = 0;
         const cameraDistance = 8;
         const keys = {};
+
+        // 🌟 플레이어 애니메이션 상태 변수
+        let playerIsAttacking = false;
+        let playerAttackTimer = 0;
+        const PLAYER_ATTACK_DURATION = 0.3; // 공격 모션 유지 시간 (0.3초)
+
+        function updatePlayerImage(imgName) {
+            player.material.map = textureLoader.load('image/' + imgName);
+            player.material.needsUpdate = true;
+        }
 
         blocker.addEventListener('click', () => {
             if (!isGameOver) document.body.requestPointerLock();
@@ -154,11 +173,20 @@
 
         window.addEventListener('mousedown', (e) => {
             if (document.pointerLockElement && e.button === 0 && !isGrabbed && !isGameOver) {
-                if (player.position.distanceTo(monster.position) <= 6.0) { 
-                    monsterHealth -= 50;
-                    uiMonsterHP.innerText = monsterHealth;
-                    monster.material.color.setHex(0xffaaaa); 
-                    setTimeout(() => monster.material.color.setHex(0xffffff), 100); 
+                
+                // 🌟 플레이어 공격 애니메이션 시작
+                if (!playerIsAttacking) {
+                    playerIsAttacking = true;
+                    playerAttackTimer = PLAYER_ATTACK_DURATION;
+                    updatePlayerImage('player_attack.png');
+
+                    // 타격 판정 및 이펙트
+                    if (player.position.distanceTo(monster.position) <= 6.0) { 
+                        monsterHealth -= 50;
+                        uiMonsterHP.innerText = monsterHealth;
+                        monster.material.color.setHex(0xffaaaa); 
+                        setTimeout(() => monster.material.color.setHex(0xffffff), 100); 
+                    }
                 }
             }
         });
@@ -174,7 +202,22 @@
             if (move.lengthSq() > 0) {
                 move.normalize().applyAxisAngle(new THREE.Vector3(0,1,0), yaw);
                 player.position.addScaledVector(move, 12 * dt); 
-                player.rotation.y = Math.atan2(move.x, move.z); 
+                // 🌟 평면(Plane)을 사용하므로, 이동 방향으로 메쉬를 회전시키던 코드는 삭제했습니다.
+                // 대신 아래쪽 animate 루프에서 항상 카메라를 보게(빌보드) 만듭니다.
+            }
+        }
+
+        // 🌟 플레이어 애니메이션 업데이트 함수
+        function updatePlayerAnim(dt) {
+            // 플레이어도 몬스터처럼 항상 카메라를 바라보게 설정 (빌보드)
+            player.quaternion.copy(camera.quaternion);
+
+            if (playerIsAttacking) {
+                playerAttackTimer -= dt;
+                if (playerAttackTimer <= 0) {
+                    playerIsAttacking = false;
+                    updatePlayerImage('player_idle.png'); // 시간이 지나면 대기 상태로 복귀
+                }
             }
         }
 
@@ -363,7 +406,7 @@
 
         function flashPlayerRed() {
             player.material.color.setHex(0xff0000);
-            setTimeout(() => player.material.color.setHex(0x00aaff), 200);
+            setTimeout(() => player.material.color.setHex(0xaaaaaa), 200); // 🌟 평면은 기본색상을 흰색계열로 복구
         }
 
         function checkGrab() {
@@ -513,7 +556,7 @@
             sequenceIndex = 0;
             frameTimer = 0;
 
-            player.position.set(0, 1, 0);
+            player.position.set(0, 1.5, 0); // 🌟 y좌표 1.5로 맞춤
             monster.position.set(0, 2.5, -15);
             yaw = 0; pitch = 0;
             
@@ -525,6 +568,10 @@
             uiPattern.innerText = '대기 (IDLE)';
             uiPattern.style.color = '#ffaa00';
             updateMonsterImage('idle.png');
+
+            // 🌟 플레이어 상태도 초기화
+            playerIsAttacking = false;
+            updatePlayerImage('player_idle.png');
 
             gameOverUI.style.display = 'none';
             blocker.style.display = 'flex';
@@ -540,17 +587,17 @@
 
             checkGameOver();
 
-            // 🌟 마우스가 잠겨있을 때(플레이 중일 때)만 로직을 업데이트하도록 추가했습니다.
             const isPlaying = document.pointerLockElement === document.body;
 
             if (!isGameOver && isPlaying) {
                 movePlayer(dt);
+                updatePlayerAnim(dt); // 🌟 플레이어 빌보드 및 애니메이션 타이머 업데이트
                 updateProjectiles(dt); 
                 updateMonsterAI(dt);
             }
 
             const cx = player.position.x + cameraDistance * Math.sin(yaw) * Math.cos(pitch);
-            const cy = player.position.y + 2 - cameraDistance * Math.sin(pitch);
+            const cy = player.position.y + 2 - cameraDistance * Math.sin(pitch); // 카메라 높이 조절
             const cz = player.position.z + cameraDistance * Math.cos(yaw) * Math.cos(pitch);
             camera.position.set(cx, cy, cz);
             camera.lookAt(player.position.x, player.position.y+1, player.position.z);
