@@ -2,7 +2,7 @@
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
-    <title>3D Boss Fight Prototype - Game Over & Reset</title>
+    <title>3D Boss Fight Prototype - Triple Dash Update</title>
     <style>
         body { margin: 0; overflow: hidden; background-color: #222; }
         
@@ -35,7 +35,6 @@
             color: white; font-size: 24px; cursor: pointer; z-index: 20;
         }
 
-        /* 🌟 새로 추가된 게임 오버 UI */
         #gameOverUI {
             position: absolute; width: 100%; height: 100%;
             background-color: rgba(0,0,0,0.85); display: none; flex-direction: column;
@@ -71,7 +70,7 @@
         <span style="color: #bb88ff;">2. 양 발톱 내려찍기 (플레이어 무빙 시 카운터)</span><br>
         <span style="color: #00ffcc;">3. 도약 급습 (근접 상시)</span><br>
         <span style="color: #ff5555;">4. 잡기 (5초 이상 근접 시)</span><br>
-        5. 찌르기 (원거리 시)<br>
+        <span style="color: #ffaa00;">5. 연속 찌르기 (3연속 돌진, 원거리 시)</span><br>
         6. 금화 투척 (원거리 시)<br>
         7. 독 안개 (원거리 시)
     </div>
@@ -105,12 +104,11 @@
         monster.position.set(0, 2.5, -15);
         scene.add(monster);
 
-        // 🌟 전투 시스템 및 게임 상태 변수
         let monsterHealth = 1000;
         let playerHealth = 100;
         let isGrabbed = false; 
         let isDead = false; 
-        let isGameOver = false; // 게임 오버 상태 체크
+        let isGameOver = false; 
         
         const uiMonsterHP = document.getElementById('monsterHP');
         const uiPlayerHP = document.getElementById('playerHP');
@@ -130,12 +128,10 @@
             if (!isGameOver) document.body.requestPointerLock();
         });
 
-        // 마우스 잠금 해제 시 화면 처리
         document.addEventListener('pointerlockchange', () => { 
             if (document.pointerLockElement) {
                 blocker.style.display = 'none'; 
             } else {
-                // 게임 오버가 아닐 때만 일시정지(blocker) 화면 띄우기
                 if (!isGameOver) blocker.style.display = 'flex'; 
             }
         });
@@ -148,7 +144,6 @@
         });
         
         window.addEventListener('keydown', (e) => {
-            // 🌟 게임 오버 상태일 때 ESC를 누르면 리셋
             if (e.code === 'Escape' && isGameOver) {
                 resetGame();
             } else {
@@ -272,15 +267,23 @@
                 ['idle.png', 0.8]
             ],
             GRAB: [
-                ['grab_try.png', 0.7, () => checkGrab()],
-                ['grab_try2.png', 0.7, () => checkGrab()],
-                ['grab_try3.png', 0.7, () => checkGrab()],
-                ['idle.png', 0.8]
+                ['grab_try.png', 0.7, () => checkGrab()]
             ],
+            // 🌟 PIERCE 패턴 3연속 콤보로 수정
             PIERCE: [
+                // 1타
                 ['jump_ready.png', 0.5], 
                 ['pierce_jump.png', 0.2], 
                 ['pierce_dash.png', 0.5, () => startDash(35, 25)], 
+                // 2타 (연속 공격의 느낌을 주기 위해 준비 시간을 0.3초로 단축)
+                ['jump_ready.png', 0.3], 
+                ['pierce_jump.png', 0.2], 
+                ['pierce_dash.png', 0.5, () => startDash(35, 25)], 
+                // 3타
+                ['jump_ready.png', 0.3], 
+                ['pierce_jump.png', 0.2], 
+                ['pierce_dash.png', 0.5, () => startDash(35, 25)], 
+                // 종료
                 ['idle.png', 1.0]
             ],
             COIN: [
@@ -337,6 +340,7 @@
         }
 
         function startDash(speed, damage) {
+            // 🌟 람다 함수를 통해 매번 다시 실행되므로, 2타/3타 때도 플레이어의 현재 위치를 새롭게 추적합니다!
             dashDirection.subVectors(player.position, monster.position).normalize();
             dashDirection.y = 0; 
             currentDashSpeed = speed;
@@ -471,7 +475,6 @@
             }
         }
 
-        // 🌟 게임 오버 및 재시작 시스템
         function checkGameOver() {
             if (isGameOver) return;
 
@@ -483,7 +486,6 @@
                 uiMonsterHP.innerText = Math.floor(monsterHealth);
                 uiPlayerHP.innerText = Math.floor(playerHealth);
 
-                // 승패에 따른 텍스트 색상 변경
                 if (monsterHealth === 0) {
                     gameOverText.innerHTML = "승리! 몬스터를 처치했습니다.";
                     gameOverText.style.color = "#00ffcc";
@@ -493,12 +495,11 @@
                 }
 
                 gameOverUI.style.display = 'flex';
-                document.exitPointerLock(); // 마우스 잠금 자동 해제
+                document.exitPointerLock(); 
             }
         }
 
         function resetGame() {
-            // 변수 초기화
             monsterHealth = 1000;
             playerHealth = 100;
             uiMonsterHP.innerText = monsterHealth;
@@ -513,22 +514,18 @@
             timeNearPlayer = 0;
             attackCooldown = 0;
 
-            // 위치 초기화
             player.position.set(0, 1, 0);
             monster.position.set(0, 2.5, -15);
             yaw = 0; pitch = 0;
             
-            // 투사체 및 장판 삭제
             projectiles.forEach(p => scene.remove(p.mesh));
             projectiles.length = 0;
             puddles.forEach(p => scene.remove(p.mesh));
             puddles.length = 0;
 
-            // 몬스터 상태 초기화
             startPattern('IDLE');
             uiPattern.style.color = '#ffaa00';
 
-            // UI 화면 전환
             gameOverUI.style.display = 'none';
             blocker.style.display = 'flex';
         }
@@ -541,10 +538,8 @@
             requestAnimationFrame(animate);
             const dt = clock.getDelta();
 
-            // 🌟 실시간 체력 체크
             checkGameOver();
 
-            // 게임 오버 상태가 아닐 때만 게임 로직 실행
             if (!isGameOver) {
                 movePlayer(dt);
                 updateProjectiles(dt); 
