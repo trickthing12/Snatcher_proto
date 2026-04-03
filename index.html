@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <title>3D Boss Fight Prototype - Attack Telegraphs</title>
     <style>
-        body { margin: 0; overflow: hidden; background-color: #111; }
+        body { margin: 0; overflow: hidden; background-color: #222; }
         
         #ui {
             position: absolute; top: 20px; left: 20px;
@@ -85,7 +85,8 @@
         // 1. 기본 셋업 및 환경 구성
         // ==========================================
         const scene = new THREE.Scene();
-        scene.fog = new THREE.FogExp2(0x111111, 0.015);
+        // 안개 색상을 배경과 똑같은 #222222 로 밝히고, 농도도 살짝 옅게(0.01) 줄였습니다.
+        scene.fog = new THREE.FogExp2(0x222222, 0.01);
         
         const camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
         const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -93,10 +94,17 @@
         document.body.appendChild(renderer.domElement);
 
         scene.add(new THREE.AmbientLight(0xffffff, 0.8));
+        
+        // 🌟 격자(GridHelper)를 바닥 타일보다 0.01 위로 띄워서 가려지지 않게 살려냅니다!
+        const gridHelper = new THREE.GridHelper(100, 100, 0x666666, 0x444444);
+        gridHelper.position.y = 0.01; 
+        scene.add(gridHelper);
+
         const textureLoader = new THREE.TextureLoader();
 
         const ARENA_RADIUS = 45;
 
+        // 바닥 타일 생성
         const floorTex = textureLoader.load('image/floor.png');
         floorTex.wrapS = THREE.RepeatWrapping;
         floorTex.wrapT = THREE.RepeatWrapping;
@@ -106,6 +114,7 @@
         floor.rotation.x = -Math.PI / 2;
         scene.add(floor);
 
+        // 원형 벽 생성
         const wallTex = textureLoader.load('image/wall.png');
         wallTex.wrapS = THREE.RepeatWrapping;
         wallTex.wrapT = THREE.RepeatWrapping;
